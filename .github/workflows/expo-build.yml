@@ -1,0 +1,284 @@
+name: Expo Build (reusable)
+
+# Workflow riusabile per build APK Android (arm64-v8a) tramite Expo + Gradle.
+# Supporta build locale su self-hosted runner (nexus-core ARM64) e build cloud EAS.
+# Chiamato da thin wrappers nei singoli progetti via: uses: GabryXn/expo-ci/.github/workflows/expo-build.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: 'Nome app (es. WarpMobile, Ascend) — usato per artifact name e notifiche Telegram'
+        required: true
+        type: string
+      build_target:
+        description: 'local = self-hosted nexus-core ARM64 | eas = cloud Expo'
+        required: true
+        type: string
+      build_profile:
+        description: 'development (assembleDebug + dev client) | preview (assembleRelease)'
+        required: false
+        default: 'preview'
+        type: string
+      clear_cache:
+        description: 'Svuota tutte le build cache (node_modules/gradle/ccache/.cxx/metro)'
+        required: false
+        default: false
+        type: boolean
+      run_prebuild:
+        description: 'Esegui expo prebuild --clean (rigenera android/). false per iterazioni JS-only veloci.'
+        required: false
+        default: true
+        type: boolean
+      has_submodules:
+        description: 'true → checkout con submodules: recursive'
+        required: false
+        default: false
+        type: boolean
+      has_google_services:
+        description: 'true → scrive google-services.json dal secret GOOGLE_SERVICES_JSON o da /home/ubuntu/secrets/'
+        required: false
+        default: false
+        type: boolean
+      codegen_tasks:
+        description: 'Lista Gradle task (spazio-separata) per pre-generare codegen artifacts. Vuoto = skip.'
+        required: false
+        default: ''
+        type: string
+      expo_updates_channel:
+        description: 'Valore EXPO_UPDATES_CHANNEL passato a expo prebuild (es. preview, development)'
+        required: false
+        default: 'preview'
+        type: string
+    secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+      EXPO_TOKEN:
+        required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.33.0'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # LOCAL BUILD — expo prebuild + Gradle ARM64 nativo su nexus-core.
+  # arm64-v8a only. development → assembleDebug | preview → assembleRelease.
+  # ────────────────────────────────────────────────────────────────────────────
+  local-build:
+    name: Local Build (${{ inputs.build_profile }}, arm64-v8a)
+    if: ${{ inputs.build_target == 'local' }}
+    runs-on: [self-hosted, nexus-core]
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      ANDROID_NDK_HOME: /opt/android-sdk/ndk/27.3.13750724
+      ANDROID_NDK_ROOT: /opt/android-sdk/ndk/27.3.13750724
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      # clear_cache=true: wipe di ogni cache che potrebbe mascherare problemi.
+      # CCACHE_DISABLE=1 propagato via GITHUB_ENV a tutti gli step successivi.
+      - name: Clear caches
+        if: ${{ inputs.clear_cache == true }}
+        run: |
+          echo "Clearing ALL build caches (clear_cache=true)"
+          rm -rf node_modules android/.gradle android/build android/app/build android/app/.cxx .gradle .expo
+          rm -rf "$HOME/.gradle/caches" || true
+          if command -v ccache >/dev/null 2>&1; then
+            ccache -C 2>/dev/null || true
+          fi
+          rm -rf "$HOME/.ccache" || true
+          echo "CCACHE_DISABLE=1" >> "$GITHUB_ENV"
+          rm -rf "${TMPDIR:-/tmp}/metro-"* "${TMPDIR:-/tmp}/haste-map-"* || true
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # Opzionale: alcuni progetti richiedono google-services.json (es. Firebase).
+      - name: Write google-services.json
+        if: ${{ inputs.has_google_services == true }}
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > google-services.json
+          elif [ -f "/home/ubuntu/secrets/google-services.json" ]; then
+            cp /home/ubuntu/secrets/google-services.json google-services.json
+          else
+            echo "ERROR: google-services.json not found. Add GOOGLE_SERVICES_JSON secret or /home/ubuntu/secrets/google-services.json"
+            exit 1
+          fi
+
+      # Se run_prebuild=false ma android/ non esiste, abortiamo con messaggio chiaro
+      # invece di lasciare che Gradle fallisca con errore criptico.
+      - name: Verify android/ exists when skipping prebuild
+        if: ${{ inputs.run_prebuild == false }}
+        run: |
+          if [ ! -f android/app/build.gradle ]; then
+            echo "run_prebuild=false ma android/app/build.gradle non esiste."
+            echo "Esegui di nuovo con run_prebuild=true per generarlo."
+            exit 1
+          fi
+          echo "android/ esistente, riuso prebuild precedente"
+
+      - name: Expo prebuild (Android)
+        if: ${{ inputs.run_prebuild == true }}
+        env:
+          CI: "1"
+          EXPO_UPDATES_CHANNEL: ${{ inputs.expo_updates_channel }}
+        run: npx expo prebuild --platform android --clean --non-interactive
+
+      # ExpoRootProjectPlugin usa setIfNotExist("ndkVersion", "27.1.12297006").
+      # Iniettare ext.ndkVersion prima del plugin + override in tutti i subprojects
+      # garantisce NDK 27.3.13750724 su arm64 Linux. Le patch sed non sono idempotenti:
+      # skip se run_prebuild=false (android/ è già patchato dal run precedente).
+      - name: Patch NDK version in generated Gradle files
+        if: ${{ inputs.run_prebuild == true }}
+        run: |
+          sed -i '/^apply plugin: "expo-root-project"/i ext.ndkVersion = "27.3.13750724"' android/build.gradle
+          {
+            echo ''
+            echo 'subprojects { sub ->'
+            echo '  def applyNdk = {'
+            echo "    if (sub.extensions.findByName('android') != null) {"
+            echo '      sub.android.ndkVersion = "27.3.13750724"'
+            echo '    }'
+            echo '  }'
+            echo '  if (sub.state.executed) { applyNdk() } else { sub.afterEvaluate { applyNdk() } }'
+            echo '}'
+          } >> android/build.gradle
+          # Hermes: su aarch64 Linux il plugin RN non riconosce l'arch → forziamo linux64-bin
+          # (hermesc x86_64 statico gira via qemu-user-static/binfmt-misc).
+          sed -i 's|%OS-BIN%|linux64-bin|g' android/app/build.gradle
+
+      # cmake ARM64 nativo in /home/ubuntu/cmake-native evita QEMU su arm64 Linux.
+      - name: Configure ARM64-native toolchain
+        run: printf 'sdk.dir=/opt/android-sdk\ncmake.dir=/home/ubuntu/cmake-native\n' > android/local.properties
+
+      # Patch idempotente del NDK: usa clang aarch64 nativo anziché qemu-emulated x86_64.
+      # Riduce la build C++ da ~1h a ~10-15min sul runner ARM64.
+      - name: Patch NDK aarch64 host toolchain
+        run: bash scripts/setup-ndk-aarch64-host.sh
+
+      # Opzionale: alcuni progetti richiedono pre-generazione codegen per evitare
+      # race condition tra :app:configureCMake e generateCodegenArtifacts.
+      - name: Pre-generate codegen artifacts
+        if: ${{ inputs.codegen_tasks != '' }}
+        env:
+          CODEGEN_TASKS: ${{ inputs.codegen_tasks }}
+        run: |
+          cd android && chmod +x gradlew
+          ./gradlew --no-daemon --parallel $CODEGEN_TASKS
+
+      # development → assembleDebug | preview → assembleRelease.
+      # clear_cache=true: drop --build-cache così Gradle non riusa output precedenti.
+      - name: Build APK
+        env:
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          CLEAR_CACHE: ${{ inputs.clear_cache }}
+        run: |
+          cd android && chmod +x gradlew
+          BUILD_CACHE_FLAG="--build-cache"
+          if [ "$CLEAR_CACHE" = "true" ]; then
+            BUILD_CACHE_FLAG=""
+          fi
+          if [ "$BUILD_PROFILE" = "development" ]; then
+            ./gradlew assembleDebug \
+              --no-daemon $BUILD_CACHE_FLAG --parallel \
+              -PreactNativeArchitectures=arm64-v8a
+          else
+            ./gradlew assembleRelease \
+              --no-daemon $BUILD_CACHE_FLAG --parallel \
+              -PreactNativeArchitectures=arm64-v8a
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-${{ inputs.build_profile }}-apk-${{ github.sha }}
+          path: android/app/build/outputs/apk/**/*.apk
+          retention-days: 7
+
+      - name: Send APK via Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          APP_NAME: ${{ inputs.app_name }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+        run: |
+          APK_FILE=$(find android/app/build/outputs/apk -name "*.apk" | head -1)
+          if [ -z "$APK_FILE" ] || [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "Skip notifica Telegram (APK non trovato o token mancante)"
+            exit 0
+          fi
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          LINE1="✅ ${APP_NAME} \`${BUILD_PROFILE}\` APK — \`${SHORT_SHA}\`"
+          LINE2="Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CAPTION="${LINE1}"$'\n'"${LINE2}"
+          curl -sf \
+            -F "chat_id=${TELEGRAM_CHAT_ID}" \
+            -F "document=@${APK_FILE}" \
+            -F "caption=${CAPTION}" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # EAS CLOUD BUILD — delega tutto ai server Expo.
+  # ────────────────────────────────────────────────────────────────────────────
+  eas-build:
+    name: EAS Build (${{ inputs.build_profile }}, APK)
+    if: ${{ inputs.build_target == 'eas' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Cache pnpm store
+        if: ${{ inputs.clear_cache != true }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Trigger EAS build
+        env:
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          CLEAR_CACHE: ${{ inputs.clear_cache }}
+        run: |
+          CLEAR_FLAG=""
+          if [ "$CLEAR_CACHE" = "true" ]; then
+            CLEAR_FLAG="--clear-cache"
+          fi
+          eas build --platform android --profile "$BUILD_PROFILE" --non-interactive $CLEAR_FLAG

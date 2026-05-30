@@ -1,0 +1,172 @@
+name: Expo Update (reusable)
+
+# Workflow riusabile per pubblicare EAS Update (OTA) on-demand.
+# Per JS/TS-only changes — non rigenera android/ né compila APK.
+# Chiamato da thin wrappers nei singoli progetti via: uses: GabryXn/expo-ci/.github/workflows/expo-update.yml@main
+#
+# Quando usare update vs build:
+#   - Update: solo file JS/TS/JSON/asset (componenti, hook, store, services...)
+#   - Build:  cambi a deps native, app.json plugins, gradle, NDK, modules/
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: 'Nome app (es. WarpMobile, Ascend)'
+        required: true
+        type: string
+      update_target:
+        description: 'local = self-hosted nexus-core | eas = cloud Expo'
+        required: true
+        type: string
+      branch:
+        description: 'Branch EAS Update di destinazione (development | preview | production)'
+        required: true
+        type: string
+      message:
+        description: 'Messaggio update. Vuoto → prima riga del commit corrente.'
+        required: false
+        default: ''
+        type: string
+      clear_cache:
+        description: 'Svuota node_modules / .expo / metro cache prima del bundle.'
+        required: false
+        default: false
+        type: boolean
+      skip_typecheck:
+        description: 'Salta TypeScript type-check (sconsigliato).'
+        required: false
+        default: false
+        type: boolean
+      has_submodules:
+        description: 'true → checkout con submodules: recursive'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      EXPO_TOKEN:
+        required: false
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.33.0'
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # LOCAL UPDATE — self-hosted runner (nexus-core ARM64).
+  # `eas update` fa il bundle in locale poi upload manifest+assets:
+  # sfrutta pnpm store, node_modules e Metro cache locali già caldi.
+  # ────────────────────────────────────────────────────────────────────────────
+  local-update:
+    name: Local Update (${{ inputs.branch }})
+    if: ${{ inputs.update_target == 'local' }}
+    runs-on: [self-hosted, nexus-core]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      # Wipe selettivo: solo cache JS. Non tocchiamo android/ — un update non compila nativo.
+      - name: Clear JS caches
+        if: ${{ inputs.clear_cache == true }}
+        run: |
+          rm -rf node_modules .expo
+          rm -rf "${TMPDIR:-/tmp}/metro-"* "${TMPDIR:-/tmp}/haste-map-"* || true
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # Escludiamo __tests__/ dal typecheck: i file di test non finiscono nel bundle OTA.
+      - name: TypeScript type-check (production code only)
+        if: ${{ inputs.skip_typecheck != true }}
+        run: |
+          node -e "const c=require('./tsconfig.json'); c.exclude=[...(c.exclude||[]),'__tests__','**/*.test.ts','**/*.test.tsx','**/__mocks__']; require('fs').writeFileSync('tsconfig.update.json', JSON.stringify(c,null,2));"
+          NODE_OPTIONS="--max-old-space-size=4096" npx tsc --noEmit -p tsconfig.update.json
+          rm -f tsconfig.update.json
+
+      - name: Publish OTA update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          BRANCH: ${{ inputs.branch }}
+          USER_MESSAGE: ${{ inputs.message }}
+        run: |
+          if [ -n "$USER_MESSAGE" ]; then
+            MSG="$USER_MESSAGE"
+          else
+            MSG=$(git log -1 --pretty=%s)
+          fi
+          echo "Publishing to branch=${BRANCH} message=\"${MSG}\""
+          npx eas-cli@latest update \
+            --branch "$BRANCH" \
+            --platform android \
+            --message "manual: ${GITHUB_SHA} — ${MSG}" \
+            --non-interactive
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # EAS CLOUD UPDATE — GitHub-hosted ubuntu-latest.
+  # Ambiente fresh: più lento al primo run ma immune da cache corrotte locali.
+  # ────────────────────────────────────────────────────────────────────────────
+  eas-update:
+    name: EAS Update (ubuntu-latest, ${{ inputs.branch }})
+    if: ${{ inputs.update_target == 'eas' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Cache pnpm store
+        if: ${{ inputs.clear_cache != true }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript type-check (production code only)
+        if: ${{ inputs.skip_typecheck != true }}
+        run: |
+          node -e "const c=require('./tsconfig.json'); c.exclude=[...(c.exclude||[]),'__tests__','**/*.test.ts','**/*.test.tsx','**/__mocks__']; require('fs').writeFileSync('tsconfig.update.json', JSON.stringify(c,null,2));"
+          NODE_OPTIONS="--max-old-space-size=4096" npx tsc --noEmit -p tsconfig.update.json
+          rm -f tsconfig.update.json
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish OTA update
+        env:
+          BRANCH: ${{ inputs.branch }}
+          USER_MESSAGE: ${{ inputs.message }}
+        run: |
+          if [ -n "$USER_MESSAGE" ]; then
+            MSG="$USER_MESSAGE"
+          else
+            MSG=$(git log -1 --pretty=%s)
+          fi
+          echo "Publishing to branch=${BRANCH} message=\"${MSG}\""
+          eas update \
+            --branch "$BRANCH" \
+            --platform android \
+            --message "manual: ${GITHUB_SHA} — ${MSG}" \
+            --non-interactive
