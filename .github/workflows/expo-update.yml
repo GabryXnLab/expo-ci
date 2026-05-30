@@ -2,7 +2,7 @@ name: Expo Update (reusable)
 
 # Workflow riusabile per pubblicare EAS Update (OTA) on-demand.
 # Per JS/TS-only changes — non rigenera android/ né compila APK.
-# Chiamato da thin wrappers nei singoli progetti via: uses: GabryXn/expo-ci/.github/workflows/expo-update.yml@main
+# Chiamato da thin wrappers nei singoli progetti via: uses: GabryXnLab/expo-ci/.github/workflows/expo-update.yml@main
 #
 # Quando usare update vs build:
 #   - Update: solo file JS/TS/JSON/asset (componenti, hook, store, services...)
@@ -104,7 +104,7 @@ jobs:
             MSG=$(git log -1 --pretty=%s)
           fi
           echo "Publishing to branch=${BRANCH} message=\"${MSG}\""
-          npx eas-cli@latest update \
+          npx eas-cli update \
             --branch "$BRANCH" \
             --platform android \
             --message "manual: ${GITHUB_SHA} — ${MSG}" \

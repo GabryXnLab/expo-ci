@@ -55,7 +55,7 @@ on:
 
 jobs:
   build:
-    uses: GabryXn/expo-ci/.github/workflows/expo-build.yml@main
+    uses: GabryXnLab/expo-ci/.github/workflows/expo-build.yml@main
     with:
       app_name: MyApp
       build_target: ${{ inputs.build_target }}
@@ -63,8 +63,28 @@ jobs:
       has_submodules: false
       has_google_services: true
       codegen_tasks: ':my-package:generateCodegenArtifactsFromSchema'
-    secrets: inherit
+    # ⚠️ NON usare `secrets: inherit`: propaga i secret SOLO se il repo chiamante
+    # è nella STESSA org/account della reusable workflow. Da un altro owner i secret
+    # arrivano VUOTI e la build fallisce (es. "google-services.json not found").
+    # Passa sempre i secret esplicitamente per nome — funziona in ogni caso:
+    secrets:
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 ```
+
+### google-services su EAS cloud (`build_target: eas`)
+
+EAS archivia per default **solo i file tracciati da git**. Se `google-services.json`
+è in `.gitignore`, lo step che lo scrive in CI non basta: il file non finisce nel
+tarball inviato ai server EAS. Soluzioni:
+
+- **`eas secret:create --scope project --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json`** (consigliato), oppure
+- un `.easignore` che includa esplicitamente `!google-services.json`.
+
+Sul runner **locale** (`build_target: local`) questo problema non esiste: il file
+viene scritto e letto dallo stesso filesystem durante `expo prebuild`.
 
 ## Infrastruttura
 

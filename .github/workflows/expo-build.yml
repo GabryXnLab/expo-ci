@@ -2,7 +2,7 @@ name: Expo Build (reusable)
 
 # Workflow riusabile per build APK Android (arm64-v8a) tramite Expo + Gradle.
 # Supporta build locale su self-hosted runner (nexus-core ARM64) e build cloud EAS.
-# Chiamato da thin wrappers nei singoli progetti via: uses: GabryXn/expo-ci/.github/workflows/expo-build.yml@main
+# Chiamato da thin wrappers nei singoli progetti via: uses: GabryXnLab/expo-ci/.github/workflows/expo-build.yml@main
 
 on:
   workflow_call:
@@ -214,16 +214,19 @@ jobs:
           path: android/app/build/outputs/apk/**/*.apk
           retention-days: 7
 
+      # La notifica è best-effort: un fallimento di rete/Telegram NON deve marcare
+      # rosso un job in cui l'APK è stato compilato e già caricato come artifact.
       - name: Send APK via Telegram
+        if: ${{ always() }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           APP_NAME: ${{ inputs.app_name }}
           BUILD_PROFILE: ${{ inputs.build_profile }}
         run: |
-          APK_FILE=$(find android/app/build/outputs/apk -name "*.apk" | head -1)
-          if [ -z "$APK_FILE" ] || [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-            echo "Skip notifica Telegram (APK non trovato o token mancante)"
+          APK_FILE=$(find android/app/build/outputs/apk -name "*.apk" 2>/dev/null | head -1)
+          if [ -z "$APK_FILE" ] || [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Skip notifica Telegram (APK non trovato o token/chat mancante)"
             exit 0
           fi
           SHORT_SHA="${GITHUB_SHA:0:7}"
@@ -234,7 +237,8 @@ jobs:
             -F "chat_id=${TELEGRAM_CHAT_ID}" \
             -F "document=@${APK_FILE}" \
             -F "caption=${CAPTION}" \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            || echo "warn: invio Telegram fallito (build comunque OK, APK disponibile come artifact)"
 
   # ────────────────────────────────────────────────────────────────────────────
   # EAS CLOUD BUILD — delega tutto ai server Expo.
@@ -266,6 +270,25 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Mirror del job local-build: alcuni progetti referenziano google-services.json
+      # in app.json (android.googleServicesFile). Va scritto prima del trigger EAS.
+      # NB: EAS archivia per default i soli file tracciati da git. Se google-services.json
+      # è gitignored, per farlo arrivare ai server EAS serve un `.easignore` che lo includa
+      # oppure `eas secret:create --type file`. Vedi README §"google-services su EAS cloud".
+      - name: Write google-services.json
+        if: ${{ inputs.has_google_services == true }}
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > google-services.json
+          elif [ -f "/home/ubuntu/secrets/google-services.json" ]; then
+            cp /home/ubuntu/secrets/google-services.json google-services.json
+          else
+            echo "ERROR: google-services.json not found. Add GOOGLE_SERVICES_JSON secret or /home/ubuntu/secrets/google-services.json"
+            exit 1
+          fi
 
       - uses: expo/expo-github-action@v8
         with:
