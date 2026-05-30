@@ -16,7 +16,7 @@ Supporta build locale su self-hosted runner ARM64 (`nexus-core`) e build cloud E
 | `build_target` | string | — | `local` = nexus-core \| `eas` = cloud Expo |
 | `build_profile` | string | `preview` | `development` (assembleDebug) \| `preview` (assembleRelease) |
 | `clear_cache` | boolean | `false` | Svuota tutte le cache (node_modules/gradle/ccache/.cxx/metro) |
-| `run_prebuild` | boolean | `true` | Esegui `expo prebuild --clean` |
+| `run_prebuild` | boolean | `true` | `true`: `expo prebuild --clean` (rigenera `android/`). `false`: riusa `android/` del run precedente, preservata via checkout `clean=false`. Se `android/` manca comunque, il prebuild parte in automatico (no fail). |
 | `has_submodules` | boolean | `false` | Checkout con `submodules: recursive` |
 | `has_google_services` | boolean | `false` | Scrive `google-services.json` dal secret |
 | `codegen_tasks` | string | `''` | Task Gradle spazio-separati per pre-generare codegen artifacts |

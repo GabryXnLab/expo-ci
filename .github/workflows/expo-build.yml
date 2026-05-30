@@ -80,9 +80,14 @@ jobs:
       ANDROID_NDK_ROOT: /opt/android-sdk/ndk/27.3.13750724
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
     steps:
+      # clean=false preserva android/ (dir git-ignored) tra run consecutivi:
+      # con run_prebuild=false si riusa il prebuild precedente senza rigenerarlo.
+      # Si forza il clean (git clean -ffdx) solo quando si rigenera comunque
+      # (run_prebuild=true) o quando si chiede esplicitamente clear_cache=true.
       - uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
+          clean: ${{ inputs.run_prebuild == true || inputs.clear_cache == true }}
 
       - uses: actions/setup-node@v4
         with:
