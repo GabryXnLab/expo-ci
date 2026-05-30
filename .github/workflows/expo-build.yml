@@ -250,18 +250,35 @@ jobs:
           APK_MB=$(( APK_BYTES / 1024 / 1024 ))
           echo "APK: ${APK_FILE} (${APK_MB} MB)"
 
-          # La Bot API limita sendDocument a 50 MB. Oltre, l'upload fallisce con
-          # 413 Request Entity Too Large: in quel caso si invia solo il link.
-          TG_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
-          if [ "${APK_BYTES}" -gt 0 ] && [ "${APK_BYTES}" -le 52428800 ]; then
+          # La Bot API CLOUD limita sendDocument a 50 MB. Un Local Bot API Server
+          # (telegram-bot-api in modalità --local, su nexus-core:8081) alza il
+          # limite a ~2 GB e permette di inviare l'APK vero in chat.
+          # Si rileva a runtime: se il local server risponde a getMe lo si usa,
+          # altrimenti fallback automatico al cloud.
+          TG_LOCAL="${TELEGRAM_API_BASE:-http://localhost:8081}"
+          TG_CLOUD="https://api.telegram.org"
+          if curl -sf -m 5 "${TG_LOCAL}/bot${TELEGRAM_BOT_TOKEN}/getMe" -o /dev/null 2>/dev/null; then
+            TG_API="${TG_LOCAL}/bot${TELEGRAM_BOT_TOKEN}"
+            MAX_BYTES=2097152000   # ~2000 MB (Local Bot API Server)
+            MAX_LABEL="2 GB (Local Bot API Server)"
+            echo "Local Bot API Server attivo su ${TG_LOCAL} → invio diretto fino a 2 GB."
+          else
+            TG_API="${TG_CLOUD}/bot${TELEGRAM_BOT_TOKEN}"
+            MAX_BYTES=52428800     # 50 MB (Bot API cloud)
+            MAX_LABEL="50 MB (Bot API cloud)"
+            echo "Local Bot API Server non raggiungibile su ${TG_LOCAL} → uso il cloud (limite 50 MB)."
+          fi
+
+          # Sotto soglia → invio il file. Oltre → invio solo il link al run.
+          if [ "${APK_BYTES}" -gt 0 ] && [ "${APK_BYTES}" -le "${MAX_BYTES}" ]; then
             HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
               -F "chat_id=${TELEGRAM_CHAT_ID}" \
               -F "document=@${APK_FILE}" \
               -F "caption=${CAPTION}" \
               "${TG_API}/sendDocument" || echo "000")
           else
-            echo "APK ${APK_MB} MB > 50 MB (limite Bot API): invio solo il link all'artifact."
-            CAPTION="${CAPTION}"$'\n'"⚠️ APK ${APK_MB} MB: troppo grande per Telegram, scaricalo dagli artifact del run."
+            echo "APK ${APK_MB} MB oltre il limite ${MAX_LABEL}: invio solo il link al run."
+            CAPTION="${CAPTION}"$'\n'"⚠️ APK ${APK_MB} MB: oltre il limite (${MAX_LABEL}), scaricalo dagli artifact del run."
             HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
               -F "chat_id=${TELEGRAM_CHAT_ID}" \
               -F "text=${CAPTION}" \
