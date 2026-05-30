@@ -245,12 +245,35 @@ jobs:
           LINE1="✅ ${APP_NAME} \`${BUILD_PROFILE}\` APK — \`${SHORT_SHA}\`"
           LINE2="Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           CAPTION="${LINE1}"$'\n'"${LINE2}"
-          curl -sf \
-            -F "chat_id=${TELEGRAM_CHAT_ID}" \
-            -F "document=@${APK_FILE}" \
-            -F "caption=${CAPTION}" \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-            || echo "warn: invio Telegram fallito (build comunque OK, APK disponibile come artifact)"
+
+          APK_BYTES=$(stat -c%s "${APK_FILE}" 2>/dev/null || echo 0)
+          APK_MB=$(( APK_BYTES / 1024 / 1024 ))
+          echo "APK: ${APK_FILE} (${APK_MB} MB)"
+
+          # La Bot API limita sendDocument a 50 MB. Oltre, l'upload fallisce con
+          # 413 Request Entity Too Large: in quel caso si invia solo il link.
+          TG_API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
+          if [ "${APK_BYTES}" -gt 0 ] && [ "${APK_BYTES}" -le 52428800 ]; then
+            HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "document=@${APK_FILE}" \
+              -F "caption=${CAPTION}" \
+              "${TG_API}/sendDocument" || echo "000")
+          else
+            echo "APK ${APK_MB} MB > 50 MB (limite Bot API): invio solo il link all'artifact."
+            CAPTION="${CAPTION}"$'\n'"⚠️ APK ${APK_MB} MB: troppo grande per Telegram, scaricalo dagli artifact del run."
+            HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "text=${CAPTION}" \
+              -F "parse_mode=Markdown" \
+              "${TG_API}/sendMessage" || echo "000")
+          fi
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "Notifica Telegram inviata (HTTP ${HTTP_CODE})."
+          else
+            echo "warn: invio Telegram fallito (HTTP ${HTTP_CODE}, build comunque OK, APK disponibile come artifact)"
+            echo "Risposta Telegram:"; cat /tmp/tg_resp.json 2>/dev/null || true; echo ""
+          fi
 
   # ────────────────────────────────────────────────────────────────────────────
   # EAS CLOUD BUILD — delega tutto ai server Expo.
