@@ -125,20 +125,27 @@ jobs:
             exit 1
           fi
 
-      # Se run_prebuild=false ma android/ non esiste, abortiamo con messaggio chiaro
-      # invece di lasciare che Gradle fallisca con errore criptico.
-      - name: Verify android/ exists when skipping prebuild
-        if: ${{ inputs.run_prebuild == false }}
+      # Decide se eseguire il prebuild. run_prebuild=false è una preferenza "soft":
+      # salta il prebuild SOLO se android/ esiste già (riuso del run precedente).
+      # Se android/app/build.gradle non c'è (es. actions/checkout con clean=true ha
+      # rimosso la dir git-ignored, oppure primo run su runner fresco) si rigenera
+      # on-demand invece di abortire la build con un errore.
+      - name: Resolve prebuild requirement
+        id: resolve_prebuild
         run: |
-          if [ ! -f android/app/build.gradle ]; then
-            echo "run_prebuild=false ma android/app/build.gradle non esiste."
-            echo "Esegui di nuovo con run_prebuild=true per generarlo."
-            exit 1
+          if [ "${{ inputs.run_prebuild }}" = "true" ]; then
+            echo "Prebuild richiesto esplicitamente (run_prebuild=true)."
+            echo "run_prebuild=true" >> "$GITHUB_OUTPUT"
+          elif [ ! -f android/app/build.gradle ]; then
+            echo "run_prebuild=false ma android/app/build.gradle non esiste → prebuild on-demand."
+            echo "run_prebuild=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "android/ esistente → riuso prebuild precedente (skip prebuild)."
+            echo "run_prebuild=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "android/ esistente, riuso prebuild precedente"
 
       - name: Expo prebuild (Android)
-        if: ${{ inputs.run_prebuild == true }}
+        if: ${{ steps.resolve_prebuild.outputs.run_prebuild == 'true' }}
         env:
           CI: "1"
           EXPO_UPDATES_CHANNEL: ${{ inputs.expo_updates_channel }}
@@ -149,7 +156,7 @@ jobs:
       # garantisce NDK 27.3.13750724 su arm64 Linux. Le patch sed non sono idempotenti:
       # skip se run_prebuild=false (android/ è già patchato dal run precedente).
       - name: Patch NDK version in generated Gradle files
-        if: ${{ inputs.run_prebuild == true }}
+        if: ${{ steps.resolve_prebuild.outputs.run_prebuild == 'true' }}
         run: |
           sed -i '/^apply plugin: "expo-root-project"/i ext.ndkVersion = "27.3.13750724"' android/build.gradle
           {
