@@ -34,13 +34,19 @@ Pubblica un aggiornamento OTA senza ricompilare l'APK (solo cambi JS/TS/asset).
 |---|---|---|---|
 | `app_name` | string | — | Nome app |
 | `update_target` | string | — | `local` \| `eas` |
-| `branch` | string | — | Branch EAS Update (`development`, `preview`, `production`) |
+| `branch` | string | — | Canale: `auto` \| `development` \| `preview` \| `production` \| `both` |
+| `build_workflow_name` | string | `Manual Build` | Workflow di build interrogato da `branch=auto` |
 | `message` | string | `''` | Messaggio update (default: prima riga commit) |
 | `clear_cache` | boolean | `false` | Svuota node_modules/.expo/metro cache |
 | `skip_typecheck` | boolean | `false` | Salta TypeScript type-check |
 | `has_submodules` | boolean | `false` | Checkout con `submodules: recursive` |
 
-**Secrets:** `EXPO_TOKEN`
+**Secrets:** `EXPO_TOKEN`, `SUBMODULES_TOKEN`
+
+**Scelta canale (`branch`):** `auto` = canale dell'ultima build riuscita (dedotto dal `run-name`
+del workflow di build); `both` = pubblica su `development` + `preview`; o canale esplicito.
+Il wrapper deve concedere `permissions: actions: read` (serve a `branch=auto`) e impostare un
+`run-name` contenente la parola del profilo nel proprio workflow di build. Dettagli in `CLAUDE.md`.
 
 ## Utilizzo nei progetti
 
