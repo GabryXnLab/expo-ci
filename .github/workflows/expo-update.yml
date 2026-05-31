@@ -105,9 +105,11 @@ jobs:
 
           # auto: deduci il profilo dall'ultima build riuscita del progetto chiamante.
           # Il run-name del workflow di build deve contenere la parola del profilo.
-          title=$(gh run list --repo "$REPO" --workflow "$BUILD_WF" \
-                    --status success --limit 1 \
-                    --json displayTitle --jq '.[0].displayTitle // ""')
+          # Filtro lato client con jq: i flag `--workflow`/`--status` di gh si sono
+          # rivelati inaffidabili (restituivano vuoto), mentre la lista piena è solida.
+          title=$(gh run list --repo "$REPO" --limit 30 \
+                    --json workflowName,conclusion,displayTitle \
+                    --jq "[.[] | select(.workflowName==\"$BUILD_WF\" and .conclusion==\"success\")][0].displayTitle // \"\"")
           echo "Ultima build riuscita ('$BUILD_WF'): '${title:-<nessuna>}'"
 
           case "$title" in
