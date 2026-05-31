@@ -230,7 +230,7 @@ jobs:
         with:
           name: ${{ inputs.app_name }}-${{ inputs.build_profile }}-apk-${{ github.sha }}
           path: android/app/build/outputs/apk/**/*.apk
-          retention-days: 7
+          retention-days: 1
 
       # La notifica è best-effort: un fallimento di rete/Telegram NON deve marcare
       # rosso un job in cui l'APK è stato compilato e già caricato come artifact.
