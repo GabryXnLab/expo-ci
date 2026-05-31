@@ -7,6 +7,15 @@ name: Expo Update (reusable)
 # Quando usare update vs build:
 #   - Update: solo file JS/TS/JSON/asset (componenti, hook, store, services...)
 #   - Build:  cambi a deps native, app.json plugins, gradle, NDK, modules/
+#
+# Scelta del canale (input `branch`):
+#   - auto:        usa lo stesso canale dell'ULTIMA build riuscita del progetto chiamante
+#                  (quella poi installata sul device). Dedotto dal run-name del workflow di
+#                  build (vedi `build_workflow_name`): la convenzione richiede che il run-name
+#                  contenga la parola del profilo (development | preview | production).
+#                  Garantisce che l'update arrivi all'APK effettivamente installato.
+#   - development / preview / production: canale esplicito.
+#   - both:        pubblica sia su development sia su preview (due update in matrix).
 
 on:
   workflow_call:
@@ -20,8 +29,13 @@ on:
         required: true
         type: string
       branch:
-        description: 'Branch EAS Update di destinazione (development | preview | production)'
+        description: 'Canale EAS Update: auto | development | preview | production | both'
         required: true
+        type: string
+      build_workflow_name:
+        description: 'Nome del workflow di build, usato da branch=auto per dedurre il canale'
+        required: false
+        default: 'Manual Build'
         type: string
       message:
         description: 'Messaggio update. Vuoto → prima riga del commit corrente.'
@@ -56,14 +70,72 @@ env:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
+  # RESOLVE — traduce l'input `branch` nella lista di canali su cui pubblicare.
+  # Centralizzato qui (non nei wrapper) per mantenere `auto`/`both` coerenti tra
+  # tutti i progetti che usano questo reusable.
+  # ────────────────────────────────────────────────────────────────────────────
+  resolve:
+    name: Resolve channels
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # gh run list (branch=auto)
+    outputs:
+      channels: ${{ steps.pick.outputs.channels }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED: ${{ inputs.branch }}
+          REPO: ${{ github.repository }}
+          BUILD_WF: ${{ inputs.build_workflow_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$SELECTED" = "both" ]; then
+            echo 'channels=["development","preview"]' >> "$GITHUB_OUTPUT"
+            echo "Canali: development + preview"
+            exit 0
+          fi
+
+          if [ "$SELECTED" != "auto" ]; then
+            echo "channels=[\"$SELECTED\"]" >> "$GITHUB_OUTPUT"
+            echo "Canale esplicito: $SELECTED"
+            exit 0
+          fi
+
+          # auto: deduci il profilo dall'ultima build riuscita del progetto chiamante.
+          # Il run-name del workflow di build deve contenere la parola del profilo.
+          title=$(gh run list --repo "$REPO" --workflow "$BUILD_WF" \
+                    --status success --limit 1 \
+                    --json displayTitle --jq '.[0].displayTitle // ""')
+          echo "Ultima build riuscita ('$BUILD_WF'): '${title:-<nessuna>}'"
+
+          case "$title" in
+            *preview*)     ch=preview ;;
+            *development*) ch=development ;;
+            *production*)  ch=production ;;
+            *)
+              echo "::warning::Canale non deducibile dall'ultima build; uso 'preview' come fallback."
+              ch=preview
+              ;;
+          esac
+          echo "channels=[\"$ch\"]" >> "$GITHUB_OUTPUT"
+          echo "Canale auto risolto: $ch"
+
+  # ────────────────────────────────────────────────────────────────────────────
   # LOCAL UPDATE — self-hosted runner (nexus-core ARM64).
   # `eas update` fa il bundle in locale poi upload manifest+assets:
   # sfrutta pnpm store, node_modules e Metro cache locali già caldi.
   # ────────────────────────────────────────────────────────────────────────────
   local-update:
-    name: Local Update (${{ inputs.branch }})
+    name: Local Update (${{ matrix.channel }})
+    needs: resolve
     if: ${{ inputs.update_target == 'local' }}
     runs-on: [self-hosted, nexus-core]
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: ${{ fromJSON(needs.resolve.outputs.channels) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,7 +171,7 @@ jobs:
       - name: Publish OTA update
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          BRANCH: ${{ inputs.branch }}
+          BRANCH: ${{ matrix.channel }}
           USER_MESSAGE: ${{ inputs.message }}
         run: |
           if [ -n "$USER_MESSAGE" ]; then
@@ -119,9 +191,14 @@ jobs:
   # Ambiente fresh: più lento al primo run ma immune da cache corrotte locali.
   # ────────────────────────────────────────────────────────────────────────────
   eas-update:
-    name: EAS Update (ubuntu-latest, ${{ inputs.branch }})
+    name: EAS Update (ubuntu-latest, ${{ matrix.channel }})
+    needs: resolve
     if: ${{ inputs.update_target == 'eas' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: ${{ fromJSON(needs.resolve.outputs.channels) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,7 +238,7 @@ jobs:
 
       - name: Publish OTA update
         env:
-          BRANCH: ${{ inputs.branch }}
+          BRANCH: ${{ matrix.channel }}
           USER_MESSAGE: ${{ inputs.message }}
         run: |
           if [ -n "$USER_MESSAGE" ]; then
