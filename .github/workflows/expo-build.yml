@@ -204,6 +204,36 @@ jobs:
           cd android && chmod +x gradlew
           ./gradlew --no-daemon --parallel $CODEGEN_TASKS
 
+      # Incorpora il channel EAS Update nel binario. Le build locali (prebuild +
+      # gradle, senza `eas build`) NON scrivono `expo-channel-name` nel manifest:
+      # il config-plugin di expo-updates lo prende solo da updates.requestHeaders,
+      # che molti progetti non impostano (e EXPO_UPDATES_CHANNEL da solo NON è una
+      # var letta da Expo). Senza channel l'app interroga il server OTA senza
+      # sapere quale branch chiedere → non riceve mai aggiornamenti. Patchiamo il
+      # manifest con la stessa API di Expo: idempotente (aggiorna il meta-data se
+      # già presente, es. quando il progetto ha un app.config.js che lo imposta).
+      - name: Embed EAS Update channel
+        if: ${{ inputs.expo_updates_channel != '' }}
+        env:
+          EXPO_UPDATES_CHANNEL: ${{ inputs.expo_updates_channel }}
+        run: |
+          node <<'NODE'
+          const { AndroidConfig } = require('@expo/config-plugins');
+          const p = 'android/app/src/main/AndroidManifest.xml';
+          const channel = process.env.EXPO_UPDATES_CHANNEL;
+          (async () => {
+            const manifest = await AndroidConfig.Manifest.readAndroidManifestAsync(p);
+            const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);
+            AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+              app,
+              'expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY',
+              JSON.stringify({ 'expo-channel-name': channel }),
+            );
+            await AndroidConfig.Manifest.writeAndroidManifestAsync(p, manifest);
+            console.log('Embedded expo-channel-name=' + channel + ' in ' + p);
+          })().catch((e) => { console.error(e); process.exit(1); });
+          NODE
+
       # development → assembleDebug | preview → assembleRelease.
       # clear_cache=true: drop --build-cache così Gradle non riusa output precedenti.
       - name: Build APK
