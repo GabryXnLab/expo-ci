@@ -170,6 +170,23 @@ jobs:
           NODE_OPTIONS="--max-old-space-size=4096" npx tsc --noEmit -p tsconfig.update.json
           rm -f tsconfig.update.json
 
+      # Garantisce il channel→branch. Le build locali NON vengono registrate su
+      # EAS, quindi il channel non viene mai auto-creato; e `eas update --branch`
+      # da solo non lo crea. Senza channel l'app (che interroga PER channel) non
+      # riceve mai l'update. Idempotente: crea solo se assente, così un errore di
+      # auth non viene mascherato da `|| true`.
+      - name: Ensure EAS channel
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          BRANCH: ${{ matrix.channel }}
+        run: |
+          if npx eas-cli channel:view "$BRANCH" --non-interactive >/dev/null 2>&1; then
+            echo "Channel '$BRANCH' già esistente."
+          else
+            echo "Channel '$BRANCH' assente: lo creo e lo collego alla branch omonima."
+            npx eas-cli channel:create "$BRANCH" --non-interactive
+          fi
+
       - name: Publish OTA update
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -237,6 +254,19 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
+
+      # Vedi nota nel job local-update: il channel va garantito anche qui, perché
+      # le build (locali) non lo auto-creano. Idempotente.
+      - name: Ensure EAS channel
+        env:
+          BRANCH: ${{ matrix.channel }}
+        run: |
+          if eas channel:view "$BRANCH" --non-interactive >/dev/null 2>&1; then
+            echo "Channel '$BRANCH' già esistente."
+          else
+            echo "Channel '$BRANCH' assente: lo creo e lo collego alla branch omonima."
+            eas channel:create "$BRANCH" --non-interactive
+          fi
 
       - name: Publish OTA update
         env:
