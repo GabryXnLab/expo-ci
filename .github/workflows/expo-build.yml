@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       build_profile:
-        description: 'development (assembleDebug + dev client) | preview (assembleRelease)'
+        description: 'development (assembleDebug + dev client) | preview (assembleRelease, APK) | production (bundleRelease, AAB per gli store). Per production usare build_target=eas (keystore gestito da Expo).'
         required: false
         default: 'preview'
         type: string
@@ -72,7 +72,10 @@ env:
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
   # LOCAL BUILD — expo prebuild + Gradle ARM64 nativo su nexus-core.
-  # arm64-v8a only. development → assembleDebug | preview → assembleRelease.
+  # arm64-v8a only. development → assembleDebug | preview → assembleRelease (APK)
+  # | production → bundleRelease (AAB). NB: il production locale è firmato con il
+  # keystore generato dal prebuild (NON quello gestito da Expo): utile per ispezione/
+  # test, ma per il caricamento sullo store usare build_target=eas. Vedi README.
   # ────────────────────────────────────────────────────────────────────────────
   local-build:
     name: Local Build (${{ inputs.build_profile }}, arm64-v8a)
@@ -234,9 +237,10 @@ jobs:
           })().catch((e) => { console.error(e); process.exit(1); });
           NODE
 
-      # development → assembleDebug | preview → assembleRelease.
+      # development → assembleDebug (APK) | preview → assembleRelease (APK)
+      # | production → bundleRelease (AAB, per gli store).
       # clear_cache=true: drop --build-cache così Gradle non riusa output precedenti.
-      - name: Build APK
+      - name: Build Android artifact
         env:
           BUILD_PROFILE: ${{ inputs.build_profile }}
           CLEAR_CACHE: ${{ inputs.clear_cache }}
@@ -247,24 +251,28 @@ jobs:
             BUILD_CACHE_FLAG=""
           fi
           if [ "$BUILD_PROFILE" = "development" ]; then
-            ./gradlew assembleDebug \
-              --no-daemon $BUILD_CACHE_FLAG --parallel \
-              -PreactNativeArchitectures=arm64-v8a
+            GRADLE_TASK=assembleDebug
+          elif [ "$BUILD_PROFILE" = "production" ]; then
+            GRADLE_TASK=bundleRelease
           else
-            ./gradlew assembleRelease \
-              --no-daemon $BUILD_CACHE_FLAG --parallel \
-              -PreactNativeArchitectures=arm64-v8a
+            GRADLE_TASK=assembleRelease
           fi
+          ./gradlew "$GRADLE_TASK" \
+            --no-daemon $BUILD_CACHE_FLAG --parallel \
+            -PreactNativeArchitectures=arm64-v8a
 
+      # APK (development/preview) sotto outputs/apk, AAB (production) sotto outputs/bundle.
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app_name }}-${{ inputs.build_profile }}-apk-${{ github.sha }}
-          path: android/app/build/outputs/apk/**/*.apk
+          name: ${{ inputs.app_name }}-${{ inputs.build_profile }}-${{ github.sha }}
+          path: |
+            android/app/build/outputs/apk/**/*.apk
+            android/app/build/outputs/bundle/**/*.aab
           retention-days: 1
 
       # La notifica è best-effort: un fallimento di rete/Telegram NON deve marcare
-      # rosso un job in cui l'APK è stato compilato e già caricato come artifact.
-      - name: Send APK via Telegram
+      # rosso un job in cui l'artifact è stato compilato e già caricato.
+      - name: Send artifact via Telegram
         if: ${{ always() }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -272,13 +280,15 @@ jobs:
           APP_NAME: ${{ inputs.app_name }}
           BUILD_PROFILE: ${{ inputs.build_profile }}
         run: |
-          APK_FILE=$(find android/app/build/outputs/apk -name "*.apk" 2>/dev/null | head -1)
+          # APK (development/preview) o AAB (production).
+          APK_FILE=$(find android/app/build/outputs \( -name "*.apk" -o -name "*.aab" \) 2>/dev/null | head -1)
           if [ -z "$APK_FILE" ] || [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "Skip notifica Telegram (APK non trovato o token/chat mancante)"
+            echo "Skip notifica Telegram (artifact non trovato o token/chat mancante)"
             exit 0
           fi
+          ARTIFACT_EXT="${APK_FILE##*.}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
-          LINE1="✅ ${APP_NAME} \`${BUILD_PROFILE}\` APK — \`${SHORT_SHA}\`"
+          LINE1="✅ ${APP_NAME} \`${BUILD_PROFILE}\` ${ARTIFACT_EXT^^} — \`${SHORT_SHA}\`"
           LINE2="Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           CAPTION="${LINE1}"$'\n'"${LINE2}"
 
@@ -332,7 +342,7 @@ jobs:
   # EAS CLOUD BUILD — delega tutto ai server Expo.
   # ────────────────────────────────────────────────────────────────────────────
   eas-build:
-    name: EAS Build (${{ inputs.build_profile }}, APK)
+    name: EAS Build (${{ inputs.build_profile }})
     if: ${{ inputs.build_target == 'eas' }}
     runs-on: ubuntu-latest
     steps:

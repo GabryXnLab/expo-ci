@@ -14,9 +14,12 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
 
 ## Workflow
 
-### `expo-build.yml` — build APK Android (arm64-v8a)
+### `expo-build.yml` — build Android (APK arm64-v8a / AAB)
 - `build_target`: `local` (self-hosted nexus-core ARM64, Gradle nativo) | `eas` (cloud).
-- `build_profile`: `development` (`assembleDebug` + dev client) | `preview` (`assembleRelease`).
+- `build_profile`: `development` (`assembleDebug` + dev client, APK) | `preview` (`assembleRelease`,
+  APK) | `production` (`bundleRelease`, **AAB** per gli store). Per `production` usare
+  `build_target=eas`: la firma usa il keystore gestito da Expo (il `bundleRelease` locale è
+  firmato col keystore del prebuild → ok per ispezione, NON per upload sullo store).
 - `expo_updates_channel`: valore passato a `expo prebuild` → **determina il channel OTA che
   l'APK ascolterà**. Deve combaciare col branch su cui si pubblicheranno gli update.
 - `codegen_tasks`: pre-genera artifact codegen Fabric prima di `assembleRelease` (race tra

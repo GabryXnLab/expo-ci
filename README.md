@@ -14,7 +14,7 @@ Supporta build locale su self-hosted runner ARM64 (`nexus-core`) e build cloud E
 |---|---|---|---|
 | `app_name` | string | — | Nome app (es. `WarpMobile`, `Ascend`) |
 | `build_target` | string | — | `local` = nexus-core \| `eas` = cloud Expo |
-| `build_profile` | string | `preview` | `development` (assembleDebug) \| `preview` (assembleRelease) |
+| `build_profile` | string | `preview` | `development` (assembleDebug, APK) \| `preview` (assembleRelease, APK) \| `production` (bundleRelease, AAB per gli store — usare con `build_target=eas`) |
 | `clear_cache` | boolean | `false` | Svuota tutte le cache (node_modules/gradle/ccache/.cxx/metro) |
 | `run_prebuild` | boolean | `true` | `true`: `expo prebuild --clean` (rigenera `android/`). `false`: riusa `android/` del run precedente, preservata via checkout `clean=false`. Se `android/` manca comunque, il prebuild parte in automatico (no fail). |
 | `has_submodules` | boolean | `false` | Checkout con `submodules: recursive` |
