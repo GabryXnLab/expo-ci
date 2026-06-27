@@ -2,6 +2,9 @@
 
 Workflow GitHub Actions riusabili per progetti Expo (Android, arm64-v8a).
 
+> Controparte **desktop**: [`GabryXnLab/desktop-ci`](https://github.com/GabryXnLab/desktop-ci)
+> (build Tauri multi-OS/arch). Stesso pattern thin-wrapper + reusable `@main`.
+
 ## Workflow disponibili
 
 ### `expo-build.yml` — Build APK Android

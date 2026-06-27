@@ -4,6 +4,9 @@ Reusable GitHub Actions workflows per build APK e update OTA di app Expo (React 
 Centralizza la CI/CD condivisa tra più progetti (**WarpMobile**, **Ascend**, …).
 Vedi anche `README.md` per l'overview d'uso.
 
+Controparte **desktop**: `GabryXnLab/desktop-ci` (build Tauri multi-OS/arch), stesso pattern.
+Nei consumatori (es. WarpMobile) un unico wrapper `Build` richiama entrambi i reusable.
+
 ## ⚠️ Impatto delle modifiche: @main è live per tutti
 
 I progetti richiamano questi workflow come reusable via `uses: GabryXnLab/expo-ci/...@main`.
