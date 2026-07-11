@@ -50,6 +50,11 @@ on:
         required: false
         default: 'preview'
         type: string
+      ref:
+        description: 'Ref/SHA da checkoutare. Vuoto = comportamento default (github.sha del run). Serve quando un job precedente committa nel repo nello stesso run (es. rebuild dropbear) e la build deve prendere quel nuovo commit.'
+        required: false
+        default: ''
+        type: string
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -94,6 +99,7 @@ jobs:
       # (run_prebuild=true) o quando si chiede esplicitamente clear_cache=true.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref }}
           submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
           token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
           clean: ${{ inputs.run_prebuild == true || inputs.clear_cache == true }}
@@ -348,6 +354,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref }}
           submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
           token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
 
