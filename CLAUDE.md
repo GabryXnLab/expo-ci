@@ -27,6 +27,10 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   l'APK ascolterà**. Deve combaciare col branch su cui si pubblicheranno gli update.
 - `codegen_tasks`: pre-genera artifact codegen Fabric prima di `assembleRelease` (race tra
   `:app:configureCMake` e `generateCodegenArtifacts` in release; in debug non serve).
+- `prepare_command`: hook opzionale e retrocompatibile eseguito dopo `pnpm install`, prima del
+  prebuild locale o dell'upload EAS. Riceve `GITHUB_TOKEN` del repo chiamante e serve a
+  materializzare nel checkout artefatti nativi esterni già pinnati e verificati; per EAS i
+  file ignorati da Git devono essere reinclusi dal consumatore tramite `.easignore`.
 - Cose non ovvie del job locale: patch NDK aarch64 nativo (evita QEMU, ~1h→~15min), Hermes
   forzato a `linux64-bin` su aarch64, notifica Telegram **best-effort** (non fallisce il job).
 

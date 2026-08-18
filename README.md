@@ -24,6 +24,7 @@ Supporta build locale su self-hosted runner ARM64 (`nexus-core`) e build cloud E
 | `has_google_services` | boolean | `false` | Scrive `google-services.json` dal secret |
 | `codegen_tasks` | string | `''` | Task Gradle spazio-separati per pre-generare codegen artifacts |
 | `expo_updates_channel` | string | `preview` | Valore `EXPO_UPDATES_CHANNEL` passato a `expo prebuild` |
+| `prepare_command` | string | `''` | Comando dopo `pnpm install` e prima di prebuild/upload EAS; riceve `GITHUB_TOKEN` e può materializzare artefatti nativi esterni |
 
 **Secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `EXPO_TOKEN`, `GOOGLE_SERVICES_JSON`
 
@@ -72,6 +73,7 @@ jobs:
       has_submodules: false
       has_google_services: true
       codegen_tasks: ':my-package:generateCodegenArtifactsFromSchema'
+      prepare_command: 'bash scripts/prepare-native-artifacts.sh'
     # ⚠️ NON usare `secrets: inherit`: propaga i secret SOLO se il repo chiamante
     # è nella STESSA org/account della reusable workflow. Da un altro owner i secret
     # arrivano VUOTI e la build fallisce (es. "google-services.json not found").
@@ -94,6 +96,9 @@ tarball inviato ai server EAS. Soluzioni:
 
 Sul runner **locale** (`build_target: local`) questo problema non esiste: il file
 viene scritto e letto dallo stesso filesystem durante `expo prebuild`.
+
+Lo stesso vincolo vale per file prodotti da `prepare_command`: se sono ignorati da Git e la
+build usa EAS cloud, il progetto consumatore deve reincluderli esplicitamente in `.easignore`.
 
 ## Infrastruttura
 

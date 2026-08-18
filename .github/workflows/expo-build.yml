@@ -55,6 +55,11 @@ on:
         required: false
         default: ''
         type: string
+      prepare_command:
+        description: 'Comando opzionale eseguito dopo pnpm install e prima del prebuild/EAS upload. Ha GITHUB_TOKEN disponibile; serve a materializzare artefatti nativi esterni verificati.'
+        required: false
+        default: ''
+        type: string
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -129,6 +134,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Prepare project artifacts
+        if: ${{ inputs.prepare_command != '' }}
+        env:
+          PREPARE_COMMAND: ${{ inputs.prepare_command }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash -euo pipefail -c "$PREPARE_COMMAND"
 
       # Opzionale: alcuni progetti richiedono google-services.json (es. Firebase).
       - name: Write google-services.json
@@ -376,6 +388,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare project artifacts
+        if: ${{ inputs.prepare_command != '' }}
+        env:
+          PREPARE_COMMAND: ${{ inputs.prepare_command }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash -euo pipefail -c "$PREPARE_COMMAND"
 
       # Mirror del job local-build: alcuni progetti referenziano google-services.json
       # in app.json (android.googleServicesFile). Va scritto prima del trigger EAS.
