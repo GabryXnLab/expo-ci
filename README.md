@@ -22,11 +22,12 @@ Supporta build locale su self-hosted runner ARM64 (`nexus-core`) e build cloud E
 | `run_prebuild` | boolean | `true` | `true`: `expo prebuild --clean` (rigenera `android/`). `false`: riusa `android/` del run precedente, preservata via checkout `clean=false`. Se `android/` manca comunque, il prebuild parte in automatico (no fail). |
 | `has_submodules` | boolean | `false` | Checkout con `submodules: recursive` |
 | `has_google_services` | boolean | `false` | Scrive `google-services.json` dal secret |
+| `signing_keystore` | string | `''` | Nome del keystore con cui firmare la build **locale**: cercato in `/home/ubuntu/secrets/<nome>.jks` + `.properties` sul runner, o nei secret `ANDROID_KEYSTORE_BASE64`/`ANDROID_KEYSTORE_PROPERTIES`. Vuoto = firma di debug. Dichiarato ma introvabile = build in errore |
 | `codegen_tasks` | string | `''` | Task Gradle spazio-separati per pre-generare codegen artifacts |
 | `expo_updates_channel` | string | `preview` | Valore `EXPO_UPDATES_CHANNEL` passato a `expo prebuild` |
 | `prepare_command` | string | `''` | Comando dopo `pnpm install` e prima di prebuild/upload EAS; riceve `GITHUB_TOKEN` e può materializzare artefatti nativi esterni |
 
-**Secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `EXPO_TOKEN`, `GOOGLE_SERVICES_JSON`
+**Secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `EXPO_TOKEN`, `GOOGLE_SERVICES_JSON`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PROPERTIES`
 
 ### `expo-update.yml` — EAS Update (OTA)
 
@@ -84,6 +85,33 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 ```
+
+### Firma delle build locali (`signing_keystore`)
+
+`expo prebuild` genera sempre un `debug.keystore` e il buildType `release` lo eredita: una
+build locale "release" esce firmata con l'**impronta di debug**, quella pubblica del template.
+Per la maggior parte delle app non cambia nulla — ma per Google Sign-In (e per ogni servizio
+che verifica *package + SHA-1* del chiamante) quell'impronta **è** l'identità dell'app: con
+quella sbagliata il login risponde `DEVELOPER_ERROR` anche se client id, secret e backend sono
+perfetti, e l'artefatto non si distingue a occhio da uno giusto.
+
+Con `signing_keystore: <nome>` il job locale firma con il keystore vero, tenendo la build sul
+runner privato:
+
+- il keystore sta sul runner in `/home/ubuntu/secrets/<nome>.jks`, con accanto
+  `<nome>.properties` (`storePassword`, `keyAlias`, `keyPassword`), entrambi `chmod 600` —
+  così **non passa dai secret di GitHub** e non lascia la macchina;
+- in alternativa (runner cloud) si usano i secret `ANDROID_KEYSTORE_BASE64` (il `.jks` in
+  base64) e `ANDROID_KEYSTORE_PROPERTIES` (le tre righe del `.properties`);
+- la firma passa dalle proprietà `-Pandroid.injected.signing.*` di AGP: nessuna modifica a
+  `build.gradle`, che il prebuild rigenera comunque a ogni run;
+- **dichiarato ma introvabile è un errore**, non un ritorno silenzioso alla firma di debug: un
+  fallback qui produrrebbe proprio l'artefatto che sembra buono e fallisce sul dispositivo;
+- dopo la build l'impronta dell'APK viene **confrontata** con quella del keystore (`apksigner`
+  contro `keytool`): se non coincidono il job fallisce.
+
+Per usare lo stesso keystore di EAS (stessa identità d'app fra build locali e cloud) lo si
+esporta una volta sola con `eas credentials` → *Download keystore*.
 
 ### google-services su EAS cloud (`build_target: eas`)
 

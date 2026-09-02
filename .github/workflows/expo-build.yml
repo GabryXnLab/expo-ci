@@ -40,6 +40,18 @@ on:
         required: false
         default: false
         type: boolean
+      signing_keystore:
+        description: >-
+          Nome del keystore con cui FIRMARE la build locale (senza estensione): il runner lo
+          cerca in /home/ubuntu/secrets/<nome>.jks + <nome>.properties (storePassword,
+          keyAlias, keyPassword), oppure nei secret ANDROID_KEYSTORE_BASE64 +
+          ANDROID_KEYSTORE_PROPERTIES. Vuoto = firma con il debug keystore del prebuild.
+          Serve quando l'app usa Google Sign-In o un altro servizio che verifica package +
+          SHA-1 del chiamante: con l'impronta di debug quel controllo fallisce (DEVELOPER_ERROR)
+          anche se tutto il resto è configurato bene.
+        required: false
+        default: ''
+        type: string
       codegen_tasks:
         description: 'Lista Gradle task (spazio-separata) per pre-generare codegen artifacts. Vuoto = skip.'
         required: false
@@ -68,6 +80,10 @@ on:
       EXPO_TOKEN:
         required: false
       GOOGLE_SERVICES_JSON:
+        required: false
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PROPERTIES:
         required: false
       # PAT (read-only Contents) per clonare submodule privati in repo diverse:
       # il GITHUB_TOKEN di default è scoped al solo repo in build. Deve poter
@@ -255,6 +271,48 @@ jobs:
           })().catch((e) => { console.error(e); process.exit(1); });
           NODE
 
+      # Il prebuild genera SEMPRE un debug.keystore e il buildType release lo eredita: un APK
+      # "release" firmato con l'impronta di debug. Per Google Sign-In (e per ogni servizio che
+      # verifica package + SHA-1) quell'impronta è l'identità dell'app, quindi qui si materializza
+      # il keystore vero. Dichiarato ma introvabile = ERRORE: tornare in silenzio alla firma di
+      # debug produrrebbe un artefatto che sembra buono e fallisce solo sul dispositivo.
+      - name: Resolve release signing
+        id: signing
+        if: ${{ inputs.signing_keystore != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PROPS: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
+          KEYSTORE_NAME: ${{ inputs.signing_keystore }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/signing"
+          rm -rf "$DIR" && mkdir -p "$DIR" && chmod 700 "$DIR"
+          if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PROPS:-}" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$DIR/ks.jks"
+            printf '%s\n' "$KEYSTORE_PROPS" > "$DIR/ks.properties"
+            echo "Keystore '$KEYSTORE_NAME' dai secret del repository."
+          elif [ -f "/home/ubuntu/secrets/$KEYSTORE_NAME.jks" ] \
+            && [ -f "/home/ubuntu/secrets/$KEYSTORE_NAME.properties" ]; then
+            cp "/home/ubuntu/secrets/$KEYSTORE_NAME.jks" "$DIR/ks.jks"
+            cp "/home/ubuntu/secrets/$KEYSTORE_NAME.properties" "$DIR/ks.properties"
+            echo "Keystore '$KEYSTORE_NAME' dal runner (/home/ubuntu/secrets)."
+          else
+            echo "ERROR: signing_keystore='$KEYSTORE_NAME' ma il keystore non c'è: né i secret"
+            echo "ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PROPERTIES, né"
+            echo "/home/ubuntu/secrets/$KEYSTORE_NAME.jks(+.properties) sul runner."
+            exit 1
+          fi
+          chmod 600 "$DIR/ks.jks" "$DIR/ks.properties"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          # L'impronta attesa serve al controllo dopo la build: si legge dal keystore, non
+          # si scrive a mano da nessuna parte.
+          STORE_PW=$(grep -E '^storePassword=' "$DIR/ks.properties" | cut -d= -f2-)
+          echo "::add-mask::$STORE_PW"
+          SHA1=$(keytool -list -v -keystore "$DIR/ks.jks" -storepass "$STORE_PW" 2>/dev/null \
+                 | grep -m1 -oE 'SHA1: [0-9A-F:]+' | cut -d' ' -f2)
+          echo "sha1=$SHA1" >> "$GITHUB_OUTPUT"
+          echo "Firma release attesa: SHA-1 $SHA1"
+
       # development → assembleDebug (APK) | preview → assembleRelease (APK)
       # | production → bundleRelease (AAB, per gli store).
       # clear_cache=true: drop --build-cache così Gradle non riusa output precedenti.
@@ -262,6 +320,7 @@ jobs:
         env:
           BUILD_PROFILE: ${{ inputs.build_profile }}
           CLEAR_CACHE: ${{ inputs.clear_cache }}
+          SIGNING_DIR: ${{ steps.signing.outputs.dir }}
         run: |
           cd android && chmod +x gradlew
           BUILD_CACHE_FLAG="--build-cache"
@@ -275,9 +334,43 @@ jobs:
           else
             GRADLE_TASK=assembleRelease
           fi
+          # Firma iniettata di AGP: sostituisce il signingConfig del buildType senza toccare
+          # build.gradle, che il prebuild rigenera a ogni run.
+          SIGN_ARGS=""
+          if [ -n "${SIGNING_DIR:-}" ]; then
+            STORE_PW=$(grep -E '^storePassword=' "$SIGNING_DIR/ks.properties" | cut -d= -f2-)
+            KEY_ALIAS=$(grep -E '^keyAlias=' "$SIGNING_DIR/ks.properties" | cut -d= -f2-)
+            KEY_PW=$(grep -E '^keyPassword=' "$SIGNING_DIR/ks.properties" | cut -d= -f2-)
+            echo "::add-mask::$STORE_PW"
+            echo "::add-mask::$KEY_PW"
+            SIGN_ARGS="-Pandroid.injected.signing.store.file=$SIGNING_DIR/ks.jks"
+            SIGN_ARGS="$SIGN_ARGS -Pandroid.injected.signing.store.password=$STORE_PW"
+            SIGN_ARGS="$SIGN_ARGS -Pandroid.injected.signing.key.alias=$KEY_ALIAS"
+            SIGN_ARGS="$SIGN_ARGS -Pandroid.injected.signing.key.password=$KEY_PW"
+          fi
           ./gradlew "$GRADLE_TASK" \
             --no-daemon $BUILD_CACHE_FLAG --parallel \
-            -PreactNativeArchitectures=arm64-v8a
+            -PreactNativeArchitectures=arm64-v8a $SIGN_ARGS
+
+      # Un artefatto firmato con l'impronta sbagliata non si distingue a occhio da uno giusto:
+      # si vede solo sul dispositivo, come un login che fallisce. Qui si misura.
+      - name: Verify artifact signature
+        if: ${{ inputs.signing_keystore != '' && inputs.build_profile != 'production' }}
+        env:
+          EXPECTED_SHA1: ${{ steps.signing.outputs.sha1 }}
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          APK=$(find android/app/build/outputs/apk -name '*.apk' | head -1)
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" \
+                   | grep -m1 -oE 'SHA-1 digest: [0-9a-f]+' | cut -d' ' -f3 \
+                   | tr 'a-f' 'A-F' | sed 's/../&:/g;s/:$//')
+          echo "Atteso : $EXPECTED_SHA1"
+          echo "Trovato: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED_SHA1" ]; then
+            echo "ERROR: l'APK NON è firmato con il keystore richiesto."
+            exit 1
+          fi
 
       # APK (development/preview) sotto outputs/apk, AAB (production) sotto outputs/bundle.
       - uses: actions/upload-artifact@v4

@@ -27,6 +27,14 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   l'APK ascolterà**. Deve combaciare col branch su cui si pubblicheranno gli update.
 - `codegen_tasks`: pre-genera artifact codegen Fabric prima di `assembleRelease` (race tra
   `:app:configureCMake` e `generateCodegenArtifacts` in release; in debug non serve).
+- `signing_keystore`: firma la build **locale** con un keystore vero invece del `debug.keystore`
+  del prebuild. Il file sta sul runner (`/home/ubuntu/secrets/<nome>.jks` + `.properties`) o nei
+  secret `ANDROID_KEYSTORE_BASE64`/`ANDROID_KEYSTORE_PROPERTIES`; la firma passa dalle proprietà
+  `-Pandroid.injected.signing.*` di AGP, così `build.gradle` (rigenerato dal prebuild) non va
+  toccato. **Serve a chi usa Google Sign-In**: l'impronta di firma è l'identità dell'app per
+  Play Services, e con quella di debug il login dà `DEVELOPER_ERROR` a parità di ogni altra
+  configurazione. Dichiarato ma introvabile = errore, mai fallback silenzioso alla firma di
+  debug; dopo la build l'impronta dell'APK è confrontata con quella del keystore.
 - `prepare_command`: hook opzionale e retrocompatibile eseguito dopo `pnpm install`, prima del
   prebuild locale o dell'upload EAS. Riceve `GITHUB_TOKEN` del repo chiamante e serve a
   materializzare nel checkout artefatti nativi esterni già pinnati e verificati; per EAS i
