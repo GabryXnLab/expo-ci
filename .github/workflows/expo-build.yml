@@ -72,6 +72,11 @@ on:
         required: false
         default: ''
         type: string
+      pnpm_version:
+        description: 'Versione di pnpm da installare. ⚠️ VUOTO = la prende da "packageManager" del package.json del repo, che è la fonte di verità: passalo vuoto se il repo pinna pnpm lì, o `pnpm/action-setup` FALLISCE quando le due versioni non coincidono ("Multiple versions of pnpm specified"). Il default resta 10.33.0 per i repo che non pinnano niente.'
+        required: false
+        default: '10.33.0'
+        type: string
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -93,7 +98,6 @@ on:
 
 env:
   NODE_VERSION: '22'
-  PNPM_VERSION: '10.33.0'
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
@@ -129,9 +133,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      # ⚠️ `version` VUOTO non è una svista: significa «prendila da `packageManager` del
+      # package.json». Se il repo la pinna lì e qui se ne impone un'altra, l'action rifiuta
+      # di scegliere ("Multiple versions of pnpm specified") e il job muore prima di
+      # installare qualunque cosa. Vedi l'input `pnpm_version`.
       - uses: pnpm/action-setup@v4
         with:
-          version: ${{ env.PNPM_VERSION }}
+          version: ${{ inputs.pnpm_version }}
 
       # clear_cache=true: wipe di ogni cache che potrebbe mascherare problemi.
       # CCACHE_DISABLE=1 propagato via GITHUB_ENV a tutti gli step successivi.
@@ -467,9 +475,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      # ⚠️ `version` VUOTO non è una svista: significa «prendila da `packageManager` del
+      # package.json». Se il repo la pinna lì e qui se ne impone un'altra, l'action rifiuta
+      # di scegliere ("Multiple versions of pnpm specified") e il job muore prima di
+      # installare qualunque cosa. Vedi l'input `pnpm_version`.
       - uses: pnpm/action-setup@v4
         with:
-          version: ${{ env.PNPM_VERSION }}
+          version: ${{ inputs.pnpm_version }}
 
       - name: Cache pnpm store
         if: ${{ inputs.clear_cache != true }}
