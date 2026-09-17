@@ -77,6 +77,11 @@ on:
         required: false
         default: '10.33.0'
         type: string
+      telegram_topic_id:
+        description: 'Topic del supergruppo Telegram in cui pubblicare la notifica (message_thread_id). Vuoto = topic General / chat senza topic.'
+        required: false
+        default: ''
+        type: string
     secrets:
       TELEGRAM_BOT_TOKEN:
         required: false
@@ -396,6 +401,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ inputs.telegram_topic_id }}
           APP_NAME: ${{ inputs.app_name }}
           BUILD_PROFILE: ${{ inputs.build_profile }}
         run: |
@@ -420,6 +426,11 @@ jobs:
           # limite a ~2 GB e permette di inviare l'APK vero in chat.
           # Si rileva a runtime: se il local server risponde a getMe lo si usa,
           # altrimenti fallback automatico al cloud.
+          # Il topic va passato come campo a parte: message_thread_id vuoto viene
+          # rifiutato dalla Bot API, quindi l'argomento esiste solo se valorizzato.
+          TG_THREAD=()
+          [ -n "${TELEGRAM_TOPIC_ID}" ] && TG_THREAD=(-F "message_thread_id=${TELEGRAM_TOPIC_ID}")
+
           TG_LOCAL="${TELEGRAM_API_BASE:-http://localhost:8081}"
           TG_CLOUD="https://api.telegram.org"
           if curl -sf -m 5 "${TG_LOCAL}/bot${TELEGRAM_BOT_TOKEN}/getMe" -o /dev/null 2>/dev/null; then
@@ -437,7 +448,7 @@ jobs:
           # Sotto soglia → invio il file. Oltre → invio solo il link al run.
           if [ "${APK_BYTES}" -gt 0 ] && [ "${APK_BYTES}" -le "${MAX_BYTES}" ]; then
             HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" "${TG_THREAD[@]}" \
               -F "document=@${APK_FILE}" \
               -F "caption=${CAPTION}" \
               "${TG_API}/sendDocument" || echo "000")
@@ -445,7 +456,7 @@ jobs:
             echo "APK ${APK_MB} MB oltre il limite ${MAX_LABEL}: invio solo il link al run."
             CAPTION="${CAPTION}"$'\n'"⚠️ APK ${APK_MB} MB: oltre il limite (${MAX_LABEL}), scaricalo dagli artifact del run."
             HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" "${TG_THREAD[@]}" \
               -F "text=${CAPTION}" \
               -F "parse_mode=Markdown" \
               "${TG_API}/sendMessage" || echo "000")

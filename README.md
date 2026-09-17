@@ -26,6 +26,7 @@ Supporta build locale su self-hosted runner ARM64 (`nexus-core`) e build cloud E
 | `codegen_tasks` | string | `''` | Task Gradle spazio-separati per pre-generare codegen artifacts |
 | `expo_updates_channel` | string | `preview` | Valore `EXPO_UPDATES_CHANNEL` passato a `expo prebuild` |
 | `prepare_command` | string | `''` | Comando dopo `pnpm install` e prima di prebuild/upload EAS; riceve `GITHUB_TOKEN` e può materializzare artefatti nativi esterni |
+| `telegram_topic_id` | string | `''` | `message_thread_id` del topic in cui pubblicare la notifica, se la chat è un supergruppo con i Topics. Vuoto = topic General |
 
 **Secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `EXPO_TOKEN`, `GOOGLE_SERVICES_JSON`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PROPERTIES`
 
@@ -75,6 +76,7 @@ jobs:
       has_google_services: true
       codegen_tasks: ':my-package:generateCodegenArtifactsFromSchema'
       prepare_command: 'bash scripts/prepare-native-artifacts.sh'
+      telegram_topic_id: '6'          # opzionale: topic del supergruppo
     # ⚠️ NON usare `secrets: inherit`: propaga i secret SOLO se il repo chiamante
     # è nella STESSA org/account della reusable workflow. Da un altro owner i secret
     # arrivano VUOTI e la build fallisce (es. "google-services.json not found").

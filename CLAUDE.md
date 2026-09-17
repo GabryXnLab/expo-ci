@@ -41,6 +41,10 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   file ignorati da Git devono essere reinclusi dal consumatore tramite `.easignore`.
 - Cose non ovvie del job locale: patch NDK aarch64 nativo (evita QEMU, ~1h→~15min), Hermes
   forzato a `linux64-bin` su aarch64, notifica Telegram **best-effort** (non fallisce il job).
+- `telegram_topic_id` instrada la notifica in un topic del supergruppo. È facoltativo e
+  vuoto di default: chi non lo passa continua a ricevere nella chat come prima. Va inviato
+  come campo `message_thread_id` separato — la Bot API rifiuta un valore vuoto, quindi
+  l'argomento `curl` si costruisce solo quando l'input è valorizzato.
 
 ### `expo-update.yml` — EAS Update OTA (JS/TS-only)
 Non ricompila nativo. Input `branch`: `auto | development | preview | production | both`.
