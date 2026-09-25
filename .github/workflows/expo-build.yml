@@ -394,79 +394,20 @@ jobs:
             android/app/build/outputs/bundle/**/*.aab
           retention-days: 1
 
-      # La notifica è best-effort: un fallimento di rete/Telegram NON deve marcare
-      # rosso un job in cui l'artifact è stato compilato e già caricato.
-      - name: Send artifact via Telegram
+      # Esito sempre, anche quando la build fallisce: con l'artefatto se c'è, altrimenti con
+      # il pulsante per rilanciare il run (azione e bot in GabryXnLab/ci-bot). Best-effort.
+      - name: Notify via Telegram
         if: ${{ always() }}
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_TOPIC_ID: ${{ inputs.telegram_topic_id }}
-          APP_NAME: ${{ inputs.app_name }}
-          BUILD_PROFILE: ${{ inputs.build_profile }}
-        run: |
-          # APK (development/preview) o AAB (production).
-          APK_FILE=$(find android/app/build/outputs \( -name "*.apk" -o -name "*.aab" \) 2>/dev/null | head -1)
-          if [ -z "$APK_FILE" ] || [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "Skip notifica Telegram (artifact non trovato o token/chat mancante)"
-            exit 0
-          fi
-          ARTIFACT_EXT="${APK_FILE##*.}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          LINE1="✅ ${APP_NAME} \`${BUILD_PROFILE}\` ${ARTIFACT_EXT^^} — \`${SHORT_SHA}\`"
-          LINE2="Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          CAPTION="${LINE1}"$'\n'"${LINE2}"
-
-          APK_BYTES=$(stat -c%s "${APK_FILE}" 2>/dev/null || echo 0)
-          APK_MB=$(( APK_BYTES / 1024 / 1024 ))
-          echo "APK: ${APK_FILE} (${APK_MB} MB)"
-
-          # La Bot API CLOUD limita sendDocument a 50 MB. Un Local Bot API Server
-          # (telegram-bot-api in modalità --local, su nexus-core:8081) alza il
-          # limite a ~2 GB e permette di inviare l'APK vero in chat.
-          # Si rileva a runtime: se il local server risponde a getMe lo si usa,
-          # altrimenti fallback automatico al cloud.
-          # Il topic va passato come campo a parte: message_thread_id vuoto viene
-          # rifiutato dalla Bot API, quindi l'argomento esiste solo se valorizzato.
-          TG_THREAD=()
-          [ -n "${TELEGRAM_TOPIC_ID}" ] && TG_THREAD=(-F "message_thread_id=${TELEGRAM_TOPIC_ID}")
-
-          TG_LOCAL="${TELEGRAM_API_BASE:-http://localhost:8081}"
-          TG_CLOUD="https://api.telegram.org"
-          if curl -sf -m 5 "${TG_LOCAL}/bot${TELEGRAM_BOT_TOKEN}/getMe" -o /dev/null 2>/dev/null; then
-            TG_API="${TG_LOCAL}/bot${TELEGRAM_BOT_TOKEN}"
-            MAX_BYTES=2097152000   # ~2000 MB (Local Bot API Server)
-            MAX_LABEL="2 GB (Local Bot API Server)"
-            echo "Local Bot API Server attivo su ${TG_LOCAL} → invio diretto fino a 2 GB."
-          else
-            TG_API="${TG_CLOUD}/bot${TELEGRAM_BOT_TOKEN}"
-            MAX_BYTES=52428800     # 50 MB (Bot API cloud)
-            MAX_LABEL="50 MB (Bot API cloud)"
-            echo "Local Bot API Server non raggiungibile su ${TG_LOCAL} → uso il cloud (limite 50 MB)."
-          fi
-
-          # Sotto soglia → invio il file. Oltre → invio solo il link al run.
-          if [ "${APK_BYTES}" -gt 0 ] && [ "${APK_BYTES}" -le "${MAX_BYTES}" ]; then
-            HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" "${TG_THREAD[@]}" \
-              -F "document=@${APK_FILE}" \
-              -F "caption=${CAPTION}" \
-              "${TG_API}/sendDocument" || echo "000")
-          else
-            echo "APK ${APK_MB} MB oltre il limite ${MAX_LABEL}: invio solo il link al run."
-            CAPTION="${CAPTION}"$'\n'"⚠️ APK ${APK_MB} MB: oltre il limite (${MAX_LABEL}), scaricalo dagli artifact del run."
-            HTTP_CODE=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" "${TG_THREAD[@]}" \
-              -F "text=${CAPTION}" \
-              -F "parse_mode=Markdown" \
-              "${TG_API}/sendMessage" || echo "000")
-          fi
-          if [ "${HTTP_CODE}" = "200" ]; then
-            echo "Notifica Telegram inviata (HTTP ${HTTP_CODE})."
-          else
-            echo "warn: invio Telegram fallito (HTTP ${HTTP_CODE}, build comunque OK, APK disponibile come artifact)"
-            echo "Risposta Telegram:"; cat /tmp/tg_resp.json 2>/dev/null || true; echo ""
-          fi
+        uses: GabryXnLab/ci-bot/notify@main
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: ${{ job.status }}
+          title: ${{ inputs.app_name }} ${{ inputs.build_profile }} (build locale)
+          files: |
+            android/app/build/outputs/apk/**/*.apk
+            android/app/build/outputs/bundle/**/*.aab
 
   # ────────────────────────────────────────────────────────────────────────────
   # EAS CLOUD BUILD — delega tutto ai server Expo.
@@ -546,3 +487,13 @@ jobs:
             CLEAR_FLAG="--clear-cache"
           fi
           eas build --platform android --profile "$BUILD_PROFILE" --non-interactive $CLEAR_FLAG
+
+      - name: Notify failure via Telegram
+        if: ${{ failure() || cancelled() }}
+        uses: GabryXnLab/ci-bot/notify@main
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: ${{ job.status }}
+          title: ${{ inputs.app_name }} ${{ inputs.build_profile }} (build EAS)
