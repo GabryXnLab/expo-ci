@@ -26,7 +26,7 @@ Supporta build locale su self-hosted runner ARM64 (`nexus-core`) e build cloud E
 | `codegen_tasks` | string | `''` | Task Gradle spazio-separati per pre-generare codegen artifacts |
 | `expo_updates_channel` | string | `preview` | Valore `EXPO_UPDATES_CHANNEL` passato a `expo prebuild` |
 | `prepare_command` | string | `''` | Comando dopo `pnpm install` e prima di prebuild/upload EAS; riceve `GITHUB_TOKEN` e può materializzare artefatti nativi esterni |
-| `telegram_topic_id` | string | `''` | `message_thread_id` del topic in cui pubblicare la notifica, se la chat è un supergruppo con i Topics. Vuoto = topic General |
+| `telegram_topic_id` | string | `''` | `message_thread_id` del topic in cui pubblicare la notifica, se la chat è un supergruppo con i Topics. Vuoto = nessuna notifica (il bot CI non scrive nel General né in DM) |
 
 **Secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `EXPO_TOKEN`, `GOOGLE_SERVICES_JSON`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PROPERTIES`
 

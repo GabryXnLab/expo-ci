@@ -78,7 +78,7 @@ on:
         default: '10.33.0'
         type: string
       telegram_topic_id:
-        description: 'Topic del supergruppo Telegram in cui pubblicare la notifica (message_thread_id). Vuoto = topic General / chat senza topic.'
+        description: 'Topic del supergruppo Telegram in cui pubblicare la notifica (message_thread_id). Vuoto = nessuna notifica.'
         required: false
         default: ''
         type: string
