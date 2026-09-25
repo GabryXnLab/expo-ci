@@ -123,6 +123,17 @@ jobs:
       ANDROID_NDK_ROOT: /opt/android-sdk/ndk/27.3.13750724
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
     steps:
+      # «In corso» con ⏹ Annulla (ci-bot); lo step finale riscrive lo stesso messaggio.
+      - name: Notify start via Telegram
+        id: started
+        uses: GabryXnLab/ci-bot/notify@main
+        with:
+          run_inputs: ${{ toJSON(github.event.inputs) }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: started
+          title: ${{ inputs.app_name }} ${{ inputs.build_profile }} (build locale)
       # clean=false preserva android/ (dir git-ignored) tra run consecutivi:
       # con run_prebuild=false si riusa il prebuild precedente senza rigenerarlo.
       # Si forza il clean (git clean -ffdx) solo quando si rigenera comunque
@@ -400,6 +411,7 @@ jobs:
         if: ${{ always() }}
         uses: GabryXnLab/ci-bot/notify@main
         with:
+          message_id: ${{ steps.started.outputs.message_id }}
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
