@@ -68,6 +68,9 @@ on:
       # PAT (read-only Contents) per submodule privati cross-repo. Se assente → github.token.
       SUBMODULES_TOKEN:
         required: false
+      # Token Sentry per le source map degli update. Se assente vale ~/.sentryclirc del runner.
+      SENTRY_AUTH_TOKEN:
+        required: false
 
 env:
   NODE_VERSION: '22'
@@ -212,6 +215,23 @@ jobs:
             --platform android \
             --message "manual: ${GITHUB_SHA} — ${MSG}" \
             --non-interactive
+
+      # Un update OTA porta un bundle nuovo: senza le sue source map gli stack su Sentry
+      # restano minificati. Solo nei progetti con @sentry/react-native e un token.
+      - name: Upload source maps to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if [ ! -d node_modules/@sentry/react-native ]; then
+            echo "Progetto senza @sentry/react-native: niente da caricare."; exit 0
+          fi
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            SENTRY_AUTH_TOKEN=$(sed -n 's/^token=//p' ~/.sentryclirc 2>/dev/null | head -1)
+          fi
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::warning::Nessun token Sentry: source map dell'update non caricate."; exit 0
+          fi
+          SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx sentry-expo-upload-sourcemaps dist
 
   # ────────────────────────────────────────────────────────────────────────────
   # EAS CLOUD UPDATE — GitHub-hosted ubuntu-latest.

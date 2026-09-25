@@ -100,6 +100,10 @@ on:
       # leggere SIA il repo principale SIA i submodule. Se assente → github.token.
       SUBMODULES_TOKEN:
         required: false
+      # Token Sentry per caricare source map e simboli nativi (@sentry/react-native/expo).
+      # Se assente, sul runner vale ~/.sentryclirc; se manca anche quello l'upload si salta.
+      SENTRY_AUTH_TOKEN:
+        required: false
 
 env:
   NODE_VERSION: '22'
@@ -345,8 +349,17 @@ jobs:
           BUILD_PROFILE: ${{ inputs.build_profile }}
           CLEAR_CACHE: ${{ inputs.clear_cache }}
           SIGNING_DIR: ${{ steps.signing.outputs.dir }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           cd android && chmod +x gradlew
+          # Con @sentry/react-native il Gradle carica le source map a Sentry e, senza un token,
+          # fallisce la build: senza token si salta l'upload invece di fermarsi.
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            unset SENTRY_AUTH_TOKEN
+            if ! grep -qs '^token=' ~/.sentryclirc; then
+              export SENTRY_DISABLE_AUTO_UPLOAD=true
+            fi
+          fi
           BUILD_CACHE_FLAG="--build-cache"
           if [ "$CLEAR_CACHE" = "true" ]; then
             BUILD_CACHE_FLAG=""

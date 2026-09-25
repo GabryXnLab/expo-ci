@@ -47,7 +47,7 @@ Pubblica un aggiornamento OTA senza ricompilare l'APK (solo cambi JS/TS/asset).
 | `skip_typecheck` | boolean | `false` | Salta TypeScript type-check |
 | `has_submodules` | boolean | `false` | Checkout con `submodules: recursive` |
 
-**Secrets:** `EXPO_TOKEN`, `SUBMODULES_TOKEN`
+**Secrets:** `EXPO_TOKEN`, `SUBMODULES_TOKEN`, `SENTRY_AUTH_TOKEN` (opzionale)
 
 **Scelta canale (`branch`):** `auto` = canale dell'ultima build riuscita (dedotto dal `run-name`
 del workflow di build); `both` = pubblica su `development` + `preview`; o canale esplicito.

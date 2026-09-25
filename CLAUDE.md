@@ -91,3 +91,7 @@ Cambi nativi/SDK ⇒ nuova **build**, non update. (Lato app, ricordare che con
 - Secret passati **per nome** dai wrapper (non `inherit`, inaffidabile cross-repo).
 - `SUBMODULES_TOKEN`: PAT org-wide read-only Contents per submodule privati cross-repo
   (il `GITHUB_TOKEN` di default è scoped al solo repo in build). Fallback a `github.token`.
+- `SENTRY_AUTH_TOKEN` (opzionale): nei progetti con `@sentry/react-native` la build locale
+  carica source map e simboli da Gradle e l'update OTA carica le source map del bundle.
+  Fallback a `~/.sentryclirc` del runner; senza nessuno dei due l'upload si salta
+  (`SENTRY_DISABLE_AUTO_UPLOAD=true`) invece di far fallire la build.
