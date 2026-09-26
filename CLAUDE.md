@@ -41,6 +41,20 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   file ignorati da Git devono essere reinclusi dal consumatore tramite `.easignore`.
 - Cose non ovvie del job locale: patch NDK aarch64 nativo (evita QEMU, ~1h→~15min), Hermes
   forzato a `linux64-bin` su aarch64, notifica Telegram **best-effort** (non fallisce il job).
+- **Worker, cache condivise e `clear_cache` vengono da `GabryXnLab/build-kit/setup`**, uguali
+  a flutter-ci e desktop-ci: leggere il `CLAUDE.md` di `build-kit` prima di toccare la parte
+  comune. `max_workers` (`auto` | `2` | `4`) arriva a Gradle via `GRADLE_OPTS` (il vecchio
+  `--parallel` cablato non c'è più: parallelo sempre acceso, limitato da `workers.max`).
+- **`clear_cache` pulisce solo il progetto.** Prima cancellava `~/.gradle/caches` e ccache,
+  che sono di tutti i progetti della macchina: ora li rende non fidati per quel run (build
+  cache spenta, ccache in `RECACHE`). Il checkout fa `git clean` solo con `clear_cache`:
+  `android/` lo rigenera già `expo prebuild --clean`, e il clean a ogni prebuild toglieva
+  anche node_modules, gli artefatti già verificati di `prepare_command` e gli intermedi degli
+  altri workflow che condividono la cartella di lavoro del repo.
+- **`hermesc` (x86-64) passa da Box64** (`build-kit/x86-64`, input `x86_emulator`): 46 s
+  contro 95 s del QEMU di binfmt su un bundle da 9 MB, bytecode identico. Il binario si
+  sposta in `hermesc.x86-64` e al suo posto va un lanciatore, sempre con rename: con pnpm è
+  un hardlink allo store condiviso, e scriverci sopra cambierebbe hermesc a tutti.
 - La notifica Telegram passa dall'azione `GabryXnLab/ci-bot/notify@main` (repo privato, bot
   `@BobCI_bot` dedicato alla CI): artefatto se il job riesce, altrimenti messaggio con il
   pulsante «🔁 Rilancia», anche per il job EAS. L'azione è raggiungibile da qui solo perché i
