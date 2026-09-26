@@ -21,10 +21,27 @@ on:
         default: 'preview'
         type: string
       clear_cache:
-        description: 'Svuota tutte le build cache (node_modules/gradle/ccache/.cxx/metro)'
+        description: >-
+          Svuota le cache del progetto (node_modules, android/, .cxx, .expo, metro) e, per questo
+          run, non prende risultati da build cache di Gradle e ccache (che ricompila e riscrive).
+          Le cache condivise con gli altri progetti (~/.gradle, ccache, store di pnpm) non si
+          cancellano.
         required: false
         default: false
         type: boolean
+      max_workers:
+        description: >-
+          Worker di Gradle (e di CMake) per questo run. auto = sul self-hosted le CPU libere in
+          quel momento, mai sotto 2 | 2 | 4. Stesso input, stessi valori e stesso significato in
+          flutter-ci, expo-ci e desktop-ci (GabryXnLab/build-kit). Non vale per EAS.
+        required: false
+        default: 'auto'
+        type: string
+      x86_emulator:
+        description: 'Come eseguire hermesc x86-64 sul runner ARM64: box64 (default, circa il doppio più veloce, bytecode identico) | qemu (binfmt di sistema, la via di prima).'
+        required: false
+        default: 'box64'
+        type: string
       run_prebuild:
         description: 'Esegui expo prebuild --clean (rigenera android/). false per iterazioni JS-only veloci.'
         required: false
@@ -138,16 +155,26 @@ jobs:
           topic_id: ${{ inputs.telegram_topic_id }}
           status: started
           title: ${{ inputs.app_name }} ${{ inputs.build_profile }} (build locale)
-      # clean=false preserva android/ (dir git-ignored) tra run consecutivi:
-      # con run_prebuild=false si riusa il prebuild precedente senza rigenerarlo.
-      # Si forza il clean (git clean -ffdx) solo quando si rigenera comunque
-      # (run_prebuild=true) o quando si chiede esplicitamente clear_cache=true.
+      # Il checkout pulisce (git clean -ffdx) solo con clear_cache. android/ lo rigenera
+      # già `expo prebuild --clean`; il clean a ogni prebuild toglieva in più node_modules,
+      # gli artefatti di prepare_command già verificati e, nella cartella di lavoro che il
+      # repo condivide con gli altri suoi workflow, gli intermedi di quelli (la build desktop
+      # di Riftgate ricompilava da zero dopo ogni build mobile).
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
           submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
           token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
-          clean: ${{ inputs.run_prebuild == true || inputs.clear_cache == true }}
+          clean: ${{ inputs.clear_cache == true }}
+
+      # Worker, ccache condiviso e clear_cache di sola esecuzione: il pezzo comune a tutte
+      # le build, in GabryXnLab/build-kit.
+      - name: Tune build
+        uses: GabryXnLab/build-kit/setup@main
+        with:
+          runner: self-hosted
+          max_workers: ${{ inputs.max_workers }}
+          clear_cache: ${{ inputs.clear_cache }}
 
       - uses: actions/setup-node@v4
         with:
@@ -161,19 +188,16 @@ jobs:
         with:
           version: ${{ inputs.pnpm_version }}
 
-      # clear_cache=true: wipe di ogni cache che potrebbe mascherare problemi.
-      # CCACHE_DISABLE=1 propagato via GITHUB_ENV a tutti gli step successivi.
+      # clear_cache=true: via le cache del progetto. Quelle condivise con gli altri progetti
+      # (~/.gradle/caches, ccache) non si toccano più: cancellarle costava la build
+      # successiva a tutti. Per questo run non sono fidate — build cache di Gradle spenta e
+      # ccache in RECACHE, impostati da build-kit — che è ciò che serve a smascherare un
+      # problema di cache.
       - name: Clear caches
         if: ${{ inputs.clear_cache == true }}
         run: |
-          echo "Clearing ALL build caches (clear_cache=true)"
+          echo "Cache del progetto svuotate (clear_cache=true)"
           rm -rf node_modules android/.gradle android/build android/app/build android/app/.cxx .gradle .expo
-          rm -rf "$HOME/.gradle/caches" || true
-          if command -v ccache >/dev/null 2>&1; then
-            ccache -C 2>/dev/null || true
-          fi
-          rm -rf "$HOME/.ccache" || true
-          echo "CCACHE_DISABLE=1" >> "$GITHUB_ENV"
           rm -rf "${TMPDIR:-/tmp}/metro-"* "${TMPDIR:-/tmp}/haste-map-"* || true
 
       - name: Install dependencies
@@ -246,9 +270,40 @@ jobs:
             echo '  if (sub.state.executed) { applyNdk() } else { sub.afterEvaluate { applyNdk() } }'
             echo '}'
           } >> android/build.gradle
-          # Hermes: su aarch64 Linux il plugin RN non riconosce l'arch → forziamo linux64-bin
-          # (hermesc x86_64 statico gira via qemu-user-static/binfmt-misc).
+          # Hermes: su aarch64 Linux il plugin RN non riconosce l'arch → forziamo linux64-bin,
+          # la cartella dove lo step «hermesc x86-64» mette il lanciatore.
           sed -i 's|%OS-BIN%|linux64-bin|g' android/app/build.gradle
+
+      - name: x86-64 emulator for hermesc
+        id: x86
+        if: ${{ inputs.x86_emulator != 'qemu' }}
+        uses: GabryXnLab/build-kit/x86-64@main
+        with:
+          emulator: ${{ inputs.x86_emulator }}
+
+      # hermesc è un x86-64 statico: da solo gira col QEMU di sistema via binfmt (95 s su un
+      # bundle da 9 MB); con Box64 46 s, bytecode identico. Il binario vero si sposta accanto
+      # e al suo posto va un lanciatore. Sempre con rename, mai scrivendo sul file: con pnpm
+      # è un hardlink allo store condiviso, e sovrascriverlo cambierebbe hermesc a tutti i
+      # progetti. Idempotente, e rifatto a ogni run perché pnpm install può rimettere l'ELF.
+      - name: hermesc x86-64
+        if: ${{ steps.x86.outputs.launcher != '' }}
+        env:
+          LAUNCHER: ${{ steps.x86.outputs.launcher }}
+        run: |
+          set -euo pipefail
+          N=0
+          # hermes-compiler dalle RN 0.8x, sdks/hermesc prima.
+          for H in node_modules/hermes-compiler/hermesc/linux64-bin/hermesc \
+                   node_modules/react-native/sdks/hermesc/linux64-bin/hermesc; do
+            if [ -f "$H" ] && head -c 4 "$H" | grep -q ELF; then mv -f "$H" "$H.x86-64"; fi
+            [ -f "$H.x86-64" ] || continue
+            printf '#!/bin/sh\nexec "%s" "$(dirname "$0")/hermesc.x86-64" "$@"\n' "$LAUNCHER" > "$H.tmp"
+            chmod +x "$H.tmp"
+            mv -f "$H.tmp" "$H"
+            N=$((N+1))
+          done
+          echo "hermesc via $LAUNCHER: $N copie"
 
       # cmake ARM64 nativo in /home/ubuntu/cmake-native evita QEMU su arm64 Linux.
       - name: Configure ARM64-native toolchain
@@ -267,7 +322,7 @@ jobs:
           CODEGEN_TASKS: ${{ inputs.codegen_tasks }}
         run: |
           cd android && chmod +x gradlew
-          ./gradlew --no-daemon --parallel $CODEGEN_TASKS
+          ./gradlew --no-daemon $CODEGEN_TASKS
 
       # Incorpora il channel EAS Update nel binario. Le build locali (prebuild +
       # gradle, senza `eas build`) NON scrivono `expo-channel-name` nel manifest:
@@ -344,6 +399,7 @@ jobs:
       # development → assembleDebug (APK) | preview → assembleRelease (APK)
       # | production → bundleRelease (AAB, per gli store).
       # clear_cache=true: drop --build-cache così Gradle non riusa output precedenti.
+      # Worker e parallelo arrivano da GRADLE_OPTS (build-kit, input max_workers).
       - name: Build Android artifact
         env:
           BUILD_PROFILE: ${{ inputs.build_profile }}
@@ -386,7 +442,7 @@ jobs:
             SIGN_ARGS="$SIGN_ARGS -Pandroid.injected.signing.key.password=$KEY_PW"
           fi
           ./gradlew "$GRADLE_TASK" \
-            --no-daemon $BUILD_CACHE_FLAG --parallel \
+            --no-daemon $BUILD_CACHE_FLAG \
             -PreactNativeArchitectures=arm64-v8a $SIGN_ARGS
 
       # Un artefatto firmato con l'impronta sbagliata non si distingue a occhio da uno giusto:
