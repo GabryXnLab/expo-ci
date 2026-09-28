@@ -62,7 +62,16 @@ on:
         required: false
         default: '10.33.0'
         type: string
+      telegram_topic_id:
+        description: 'Topic del supergruppo Telegram in cui pubblicare l esito (message_thread_id), come expo-build. Vuoto = nessuna notifica.'
+        required: false
+        default: ''
+        type: string
     secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
       EXPO_TOKEN:
         required: false
       # PAT (read-only Contents) per submodule privati cross-repo. Se assente → github.token.
@@ -233,6 +242,18 @@ jobs:
           fi
           SENTRY_AUTH_TOKEN="$SENTRY_AUTH_TOKEN" npx sentry-expo-upload-sourcemaps dist
 
+      # Esito nel topic Build come per le build, con «🔁 Rilancia» se fallisce (ci-bot).
+      - name: Notify via Telegram
+        if: ${{ always() && inputs.telegram_topic_id != '' }}
+        uses: GabryXnLab/ci-bot/notify@main
+        with:
+          run_inputs: ${{ toJSON(github.event.inputs) }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: ${{ job.status }}
+          title: ${{ inputs.app_name }} update ${{ matrix.channel }} (locale)
+
   # ────────────────────────────────────────────────────────────────────────────
   # EAS CLOUD UPDATE — GitHub-hosted ubuntu-latest.
   # Ambiente fresh: più lento al primo run ma immune da cache corrotte locali.
@@ -316,3 +337,15 @@ jobs:
             --platform android \
             --message "manual: ${GITHUB_SHA} — ${MSG}" \
             --non-interactive
+
+      # Esito nel topic Build come per le build, con «🔁 Rilancia» se fallisce (ci-bot).
+      - name: Notify via Telegram
+        if: ${{ always() && inputs.telegram_topic_id != '' }}
+        uses: GabryXnLab/ci-bot/notify@main
+        with:
+          run_inputs: ${{ toJSON(github.event.inputs) }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: ${{ job.status }}
+          title: ${{ inputs.app_name }} update ${{ matrix.channel }} (EAS)

@@ -60,7 +60,8 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   pulsante «🔁 Rilancia», anche per il job EAS. L'azione è raggiungibile da qui solo perché i
   chiamanti sono repo privati dell'org: vedi `CLAUDE.md` di `ci-bot`.
 - `telegram_topic_id` instrada la notifica in un topic del supergruppo. È facoltativo e
-  vuoto di default: chi non lo passa continua a ricevere nella chat come prima.
+  vuoto di default: chi non lo passa continua a ricevere nella chat come prima. Vale anche
+  per `expo-update.yml` (solo esito finale, senza notifica di inizio: un update dura poco).
 
 ### `expo-update.yml` — EAS Update OTA (JS/TS-only)
 Non ricompila nativo. Input `branch`: `auto | development | preview | production | both`.
