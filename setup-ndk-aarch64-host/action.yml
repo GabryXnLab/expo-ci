@@ -1,0 +1,23 @@
+name: Patch NDK aarch64 host toolchain
+description: >-
+  Patcha i wrapper clang e la detection host dell'NDK Android stub linux-aarch64
+  (Google non pubblica un NDK per host Linux aarch64) per compilare nativo invece
+  che sotto QEMU. Riduce la build C++ da ~1h a ~10-15min sul runner ARM64
+  (nexus-core). Prima viveva come script nel repo del progetto (Ascend) — spostato
+  qui perché è generico a ogni consumatore di expo-build.yml, non specifico di un
+  progetto.
+
+inputs:
+  ndk_home:
+    description: "Path dell'NDK da patchare. Vuoto = $ANDROID_NDK_HOME o il default di build-kit."
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Patch NDK aarch64 host toolchain
+      shell: bash
+      env:
+        ANDROID_NDK_HOME: ${{ inputs.ndk_home != '' && inputs.ndk_home || env.ANDROID_NDK_HOME }}
+      run: bash "${{ github.action_path }}/patch.sh"

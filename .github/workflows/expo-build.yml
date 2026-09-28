@@ -310,9 +310,10 @@ jobs:
         run: printf 'sdk.dir=/opt/android-sdk\ncmake.dir=/home/ubuntu/cmake-native\n' > android/local.properties
 
       # Patch idempotente del NDK: usa clang aarch64 nativo anziché qemu-emulated x86_64.
-      # Riduce la build C++ da ~1h a ~10-15min sul runner ARM64.
+      # Riduce la build C++ da ~1h a ~10-15min sul runner ARM64. Composite action
+      # (non uno script nel checkout del chiamante): è generica a ogni consumatore.
       - name: Patch NDK aarch64 host toolchain
-        run: bash scripts/setup-ndk-aarch64-host.sh
+        uses: GabryXnLab/expo-ci/setup-ndk-aarch64-host@main
 
       # Opzionale: alcuni progetti richiedono pre-generazione codegen per evitare
       # race condition tra :app:configureCMake e generateCodegenArtifacts.
