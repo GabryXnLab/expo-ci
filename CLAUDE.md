@@ -94,9 +94,11 @@ così è coerente tra tutti i progetti.
 ## Coerenza build ↔ update (regola per i consumatori)
 
 Un APK ascolta il channel = `build_profile` con cui è stato buildato; un update lo raggiunge solo
-se pubblicato sul **branch omonimo** e con **runtimeVersion** combaciante (policy `appVersion`).
-Cambi nativi/SDK ⇒ nuova **build**, non update. (Lato app, ricordare che con
-`checkAutomatically: "NEVER"` il check va invocato a mano: vedi i consumatori.)
+se pubblicato sul **branch omonimo** e con **runtimeVersion** combaciante (dipende dalla policy
+del consumatore: `appVersion` va bumpata a mano, `fingerprint` la calcola da sola dallo stato del
+progetto — vedi il `CLAUDE.md` del singolo consumatore per quale usa). Cambi nativi/SDK ⇒ nuova
+**build**, non update. (Lato app, ricordare che con `checkAutomatically: "NEVER"` il check va
+invocato a mano: vedi i consumatori.)
 
 ## Convenzioni
 
