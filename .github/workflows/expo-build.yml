@@ -467,7 +467,11 @@ jobs:
           fi
 
       # APK (development/preview) sotto outputs/apk, AAB (production) sotto outputs/bundle.
+      # La quota di storage degli artifact è dell'org (piano free) e si ricalcola ogni 6-12 h:
+      # quando è piena una build riuscita non deve risultare fallita. La consegna vera è il
+      # file su Telegram; senza artifact manca solo il pulsante «Rimanda artefatti».
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: ${{ inputs.app_name }}-${{ inputs.build_profile }}-${{ github.sha }}
           path: |
