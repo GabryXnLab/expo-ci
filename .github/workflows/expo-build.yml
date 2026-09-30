@@ -147,7 +147,7 @@ jobs:
       # «In corso» con ⏹ Annulla (ci-bot); lo step finale riscrive lo stesso messaggio.
       - name: Notify start via Telegram
         id: started
-        uses: GabryXnLab/ci-bot/notify@main
+        uses: GabryXnLab/build-kit/notify@main
         with:
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -480,10 +480,10 @@ jobs:
           retention-days: 1
 
       # Esito sempre, anche quando la build fallisce: con l'artefatto se c'è, altrimenti con
-      # il pulsante per rilanciare il run (azione e bot in GabryXnLab/ci-bot). Best-effort.
+      # il pulsante per rilanciare il run (azione in GabryXnLab/build-kit, bot ci-bot). Best-effort.
       - name: Notify via Telegram
         if: ${{ always() }}
-        uses: GabryXnLab/ci-bot/notify@main
+        uses: GabryXnLab/build-kit/notify@main
         with:
           message_id: ${{ steps.started.outputs.message_id }}
           run_inputs: ${{ toJSON(github.event.inputs) }}
@@ -577,7 +577,7 @@ jobs:
 
       - name: Notify failure via Telegram
         if: ${{ failure() || cancelled() }}
-        uses: GabryXnLab/ci-bot/notify@main
+        uses: GabryXnLab/build-kit/notify@main
         with:
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}

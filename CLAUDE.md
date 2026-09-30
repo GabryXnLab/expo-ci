@@ -55,10 +55,12 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   contro 95 s del QEMU di binfmt su un bundle da 9 MB, bytecode identico. Il binario si
   sposta in `hermesc.x86-64` e al suo posto va un lanciatore, sempre con rename: con pnpm è
   un hardlink allo store condiviso, e scriverci sopra cambierebbe hermesc a tutti.
-- La notifica Telegram passa dall'azione `GabryXnLab/ci-bot/notify@main` (repo privato, bot
-  `@BobCI_bot` dedicato alla CI): artefatto se il job riesce, altrimenti messaggio con il
-  pulsante «🔁 Rilancia», anche per il job EAS. L'azione è raggiungibile da qui solo perché i
-  chiamanti sono repo privati dell'org: vedi `CLAUDE.md` di `ci-bot`.
+- La notifica Telegram passa dall'azione `GabryXnLab/build-kit/notify@main`, copia pubblica
+  di quella di `ci-bot` (che resta privato insieme al bot `@BobCI_bot`): artefatto se il job
+  riesce, altrimenti messaggio con il pulsante «🔁 Rilancia», anche per il job EAS. Deve
+  essere un'azione pubblica perché questo repo è pubblico e un repo pubblico non può usare
+  azioni di repo privati (GitHub le risolve all'avvio del job, anche con un `if` falso).
+  Token e chat arrivano dai secret del chiamante; senza, non parte niente.
 - `telegram_topic_id` instrada la notifica in un topic del supergruppo. È facoltativo e
   vuoto di default: chi non lo passa continua a ricevere nella chat come prima. Vale anche
   per `expo-update.yml` (solo esito finale, senza notifica di inizio: un update dura poco).

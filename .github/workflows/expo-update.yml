@@ -245,7 +245,7 @@ jobs:
       # Esito nel topic Build come per le build, con «🔁 Rilancia» se fallisce (ci-bot).
       - name: Notify via Telegram
         if: ${{ always() && inputs.telegram_topic_id != '' }}
-        uses: GabryXnLab/ci-bot/notify@main
+        uses: GabryXnLab/build-kit/notify@main
         with:
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -341,7 +341,7 @@ jobs:
       # Esito nel topic Build come per le build, con «🔁 Rilancia» se fallisce (ci-bot).
       - name: Notify via Telegram
         if: ${{ always() && inputs.telegram_topic_id != '' }}
-        uses: GabryXnLab/ci-bot/notify@main
+        uses: GabryXnLab/build-kit/notify@main
         with:
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
