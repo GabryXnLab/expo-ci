@@ -61,9 +61,12 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   essere un'azione pubblica perché questo repo è pubblico e un repo pubblico non può usare
   azioni di repo privati (GitHub le risolve all'avvio del job, anche con un `if` falso).
   Token e chat arrivano dai secret del chiamante; senza, non parte niente.
-- `telegram_topic_id` instrada la notifica in un topic del supergruppo. È facoltativo e
-  vuoto di default: chi non lo passa continua a ricevere nella chat come prima. Vale anche
-  per `expo-update.yml` (solo esito finale, senza notifica di inizio: un update dura poco).
+- `telegram_topic_id` instrada la notifica in un topic del supergruppo; vuoto = nessuna
+  notifica (il bot non scrive nel General). Ogni job che lavora — build locale, build EAS,
+  update locale ed EAS — manda «in corso» all'inizio e riscrive quel messaggio con l'esito,
+  come flutter-ci e desktop-ci (parità del `CLAUDE.md` di `build-kit`).
+- `expo-update.yml` locale non pulisce il checkout se non con `clear_cache`, come la build:
+  la cartella di lavoro è la stessa delle build del repo.
 
 ### `expo-update.yml` — EAS Update OTA (JS/TS-only)
 Non ricompila nativo. Input `branch`: `auto | development | preview | production | both`.

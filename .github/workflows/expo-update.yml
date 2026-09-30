@@ -63,7 +63,7 @@ on:
         default: '10.33.0'
         type: string
       telegram_topic_id:
-        description: 'Topic del supergruppo Telegram in cui pubblicare l esito (message_thread_id), come expo-build. Vuoto = nessuna notifica.'
+        description: 'Topic del supergruppo Telegram in cui pubblicare la notifica (message_thread_id). Vuoto = nessuna notifica.'
         required: false
         default: ''
         type: string
@@ -155,10 +155,27 @@ jobs:
       matrix:
         channel: ${{ fromJSON(needs.resolve.outputs.channels) }}
     steps:
+      # «In corso» con ⏹ Annulla, come le build; l'esito riscrive lo stesso messaggio.
+      - name: Notify start via Telegram
+        id: started
+        if: ${{ inputs.telegram_topic_id != '' }}
+        uses: GabryXnLab/build-kit/notify@main
+        with:
+          run_inputs: ${{ toJSON(github.event.inputs) }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: started
+          title: ${{ inputs.app_name }} update ${{ matrix.channel }} (locale)
+
+      # Il checkout pulisce (git clean -ffdx) solo con clear_cache, come expo-build: la
+      # cartella di lavoro è quella delle build dello stesso repo, e il clean a ogni update
+      # toglieva node_modules e gli intermedi che le build riusano.
       - uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
           token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
+          clean: ${{ inputs.clear_cache == true }}
 
       - uses: actions/setup-node@v4
         with:
@@ -247,6 +264,7 @@ jobs:
         if: ${{ always() && inputs.telegram_topic_id != '' }}
         uses: GabryXnLab/build-kit/notify@main
         with:
+          message_id: ${{ steps.started.outputs.message_id }}
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -268,6 +286,19 @@ jobs:
       matrix:
         channel: ${{ fromJSON(needs.resolve.outputs.channels) }}
     steps:
+      # «In corso» con ⏹ Annulla, come le build; l'esito riscrive lo stesso messaggio.
+      - name: Notify start via Telegram
+        id: started
+        if: ${{ inputs.telegram_topic_id != '' }}
+        uses: GabryXnLab/build-kit/notify@main
+        with:
+          run_inputs: ${{ toJSON(github.event.inputs) }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: started
+          title: ${{ inputs.app_name }} update ${{ matrix.channel }} (EAS)
+
       - uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.has_submodules && 'recursive' || 'false' }}
@@ -343,6 +374,7 @@ jobs:
         if: ${{ always() && inputs.telegram_topic_id != '' }}
         uses: GabryXnLab/build-kit/notify@main
         with:
+          message_id: ${{ steps.started.outputs.message_id }}
           run_inputs: ${{ toJSON(github.event.inputs) }}
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
