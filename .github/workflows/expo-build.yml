@@ -232,8 +232,10 @@ jobs:
       # on-demand invece di abortire la build con un errore.
       - name: Resolve prebuild requirement
         id: resolve_prebuild
+        env:
+          RUN_PREBUILD: ${{ inputs.run_prebuild }}
         run: |
-          if [ "${{ inputs.run_prebuild }}" = "true" ]; then
+          if [ "$RUN_PREBUILD" = "true" ]; then
             echo "Prebuild richiesto esplicitamente (run_prebuild=true)."
             echo "run_prebuild=true" >> "$GITHUB_OUTPUT"
           elif [ ! -f android/app/build.gradle ]; then
