@@ -150,7 +150,8 @@ Lo stesso vale per i file prodotti da `prepare_command`: se git li ignora, il pr
 | Input | Default | |
 | :--- | :--- | :--- |
 | `app_name` | obbligatorio | nome dell'artefatto e della notifica |
-| `build_target` | obbligatorio | `local` (runner self-hosted dell'org) \| `eas` (cloud di Expo) |
+| `build_target` | obbligatorio | `local` (runner self-hosted dell'org) \| `eas` (cloud di Expo)
+| `allow` | `nexus,ohos,ubicloud` | solo con `build_target: auto`: livelli ammessi a `pick-runner` |
 | `build_profile` | `preview` | `development` (`assembleDebug` + dev client, APK) \| `preview` (`assembleRelease`, APK) \| `production` (`bundleRelease`, AAB per gli store: con `eas`, che usa il keystore gestito da Expo) |
 | `clear_cache` | `false` | svuota le cache del progetto e per questo run non si fida di build cache di Gradle e ccache; le cache condivise non si cancellano |
 | `max_workers` | `auto` | worker di Gradle e CMake: `auto` \| `2` \| `4`. Non vale per EAS |

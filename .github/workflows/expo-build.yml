@@ -12,8 +12,13 @@ on:
         required: true
         type: string
       build_target:
-        description: 'local = self-hosted nexus-core ARM64 | eas = cloud Expo'
+        description: 'local = self-hosted nexus-core ARM64 | eas = cloud Expo | auto = build locale sul runner scelto da build-kit/pick-runner (nexus-core, ohos o Ubicloud)'
         required: true
+        type: string
+      allow:
+        description: 'Solo con build_target=auto: livelli ammessi a pick-runner, in virgola (nexus,ohos,ubicloud). Serve a forzare un livello nei collaudi.'
+        required: false
+        default: 'nexus,ohos,ubicloud'
         type: string
       build_profile:
         description: 'development (assembleDebug + dev client) | preview (assembleRelease, APK) | production (bundleRelease, AAB per gli store). Per production usare build_target=eas (keystore gestito da Expo).'
@@ -60,10 +65,11 @@ on:
         type: boolean
       signing_keystore:
         description: >-
-          Nome del keystore con cui FIRMARE la build locale (senza estensione): il runner lo
-          cerca in /home/ubuntu/secrets/<nome>.jks + <nome>.properties (storePassword,
-          keyAlias, keyPassword), oppure nei secret ANDROID_KEYSTORE_BASE64 +
-          ANDROID_KEYSTORE_PROPERTIES. Vuoto = firma con il debug keystore del prebuild.
+          Nome del keystore con cui FIRMARE la build locale (senza estensione). Fonti in ordine:
+          i secret RELEASE_KEYSTORE_B64 + RELEASE_KEYSTORE_PASSWORD + RELEASE_KEY_ALIAS +
+          RELEASE_KEY_PASSWORD; i secret ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PROPERTIES;
+          solo su nexus-core /home/ubuntu/secrets/<nome>.jks + <nome>.properties (storePassword,
+          keyAlias, keyPassword). Vuoto = firma con il debug keystore del prebuild.
           Serve quando l'app usa Google Sign-In o un altro servizio che verifica package +
           SHA-1 del chiamante: con l'impronta di debug quel controllo fallisce (DEVELOPER_ERROR)
           anche se tutto il resto è configurato bene.
@@ -113,6 +119,22 @@ on:
         required: false
       ANDROID_KEYSTORE_PROPERTIES:
         required: false
+      # Keystore di release nei secret di repo (nomi uguali in tutti i progetti): hanno la
+      # precedenza sul file della macchina, e permettono la firma anche su ohos e Ubicloud.
+      RELEASE_KEYSTORE_B64:
+        required: false
+      RELEASE_KEYSTORE_PASSWORD:
+        required: false
+      RELEASE_KEY_ALIAS:
+        required: false
+      RELEASE_KEY_PASSWORD:
+        required: false
+      # build_target=auto: PAT per pick-runner (senza, ripiego su nexus-core) e credenziali
+      # della cache remota per i runner effimeri.
+      RUNNER_PICK_TOKEN:
+        required: false
+      BUILD_CACHE_S3:
+        required: false
       # PAT (read-only Contents) per clonare submodule privati in repo diverse:
       # il GITHUB_TOKEN di default è scoped al solo repo in build. Deve poter
       # leggere SIA il repo principale SIA i submodule. Se assente → github.token.
@@ -127,6 +149,23 @@ env:
   NODE_VERSION: '22'
 
 jobs:
+  # Solo con build_target=auto: dove far girare la build locale (nexus-core, ohos, Ubicloud).
+  pick:
+    name: Pick runner
+    if: ${{ inputs.build_target == 'auto' }}
+    runs-on: ubuntu-slim
+    outputs:
+      runs_on: ${{ steps.pick.outputs.runs_on }}
+      profile: ${{ steps.pick.outputs.profile }}
+    steps:
+      - id: pick
+        uses: GabryXnLab/build-kit/pick-runner@auto-runner
+        with:
+          token: ${{ secrets.RUNNER_PICK_TOKEN }}
+          repos: kagami-private,Riftgate,ascend
+          ubicloud_size: '8'
+          allow: ${{ inputs.allow }}
+
   # ────────────────────────────────────────────────────────────────────────────
   # LOCAL BUILD — expo prebuild + Gradle ARM64 nativo su nexus-core.
   # arm64-v8a only. development → assembleDebug | preview → assembleRelease (APK)
@@ -136,15 +175,52 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   local-build:
     name: Local Build (${{ inputs.build_profile }}, arm64-v8a)
-    if: ${{ inputs.build_target == 'local' }}
-    runs-on: [self-hosted, nexus-core]
-    env:
-      ANDROID_HOME: /opt/android-sdk
-      ANDROID_SDK_ROOT: /opt/android-sdk
-      ANDROID_NDK_HOME: /opt/android-sdk/ndk/27.3.13750724
-      ANDROID_NDK_ROOT: /opt/android-sdk/ndk/27.3.13750724
-      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
+    needs: pick
+    if: ${{ !cancelled() && needs.pick.result != 'failure' && (inputs.build_target == 'local' || inputs.build_target == 'auto') }}
+    runs-on: ${{ inputs.build_target == 'auto' && fromJSON(needs.pick.outputs.runs_on) || fromJSON('["self-hosted","nexus-core"]') }}
     steps:
+      # Tutto ciò che dipende dalla macchina (SDK, NDK, JDK, cmake) sta qui e finisce in
+      # GITHUB_ENV: il profilo decide, non il valore di build_target.
+      - name: Machine environment
+        id: machine
+        env:
+          PROFILE: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile || 'nexus' }}
+        run: |
+          set -euo pipefail
+          NDK_VER=27.3.13750724
+          case "$PROFILE" in
+            nexus)
+              SDK=/opt/android-sdk
+              JDK=/usr/lib/jvm/java-17-openjdk-arm64
+              echo "CMAKE_DIR=/home/ubuntu/cmake-native" >> "$GITHUB_ENV"
+              ;;
+            ohos)
+              SDK=${ANDROID_HOME:-$HOME/Android/Sdk}
+              JDK=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}
+              ;;
+            ephemeral)
+              SDK=${ANDROID_HOME:-/usr/local/lib/android/sdk}
+              JDK=${JAVA_HOME_17_X64:-${JAVA_HOME:-}}
+              ;;
+            *) echo "::error::profilo sconosciuto: $PROFILE"; exit 1 ;;
+          esac
+          if [ ! -d "$SDK/ndk/$NDK_VER" ]; then
+            if [ "$PROFILE" = ephemeral ] && [ -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+              yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "ndk;$NDK_VER" >/dev/null
+            else
+              echo "::error::NDK $NDK_VER assente in $SDK (profilo $PROFILE)"; exit 1
+            fi
+          fi
+          {
+            echo "ANDROID_HOME=$SDK"
+            echo "ANDROID_SDK_ROOT=$SDK"
+            echo "ANDROID_NDK_HOME=$SDK/ndk/$NDK_VER"
+            echo "ANDROID_NDK_ROOT=$SDK/ndk/$NDK_VER"
+            echo "JAVA_HOME=$JDK"
+          } >> "$GITHUB_ENV"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "Profilo $PROFILE: SDK $SDK, JDK $JDK, $(uname -m)"
+
       # «In corso» con ⏹ Annulla (ci-bot); lo step finale riscrive lo stesso messaggio.
       - name: Notify start via Telegram
         id: started
@@ -171,11 +247,13 @@ jobs:
       # Worker, ccache condiviso e clear_cache di sola esecuzione: il pezzo comune a tutte
       # le build, in GabryXnLab/build-kit.
       - name: Tune build
-        uses: GabryXnLab/build-kit/setup@main
+        uses: GabryXnLab/build-kit/setup@auto-runner
         with:
-          runner: self-hosted
+          runner: ${{ steps.machine.outputs.profile == 'nexus' && 'self-hosted' || steps.machine.outputs.profile == 'ohos' && 'ohos' || 'ubicloud' }}
           max_workers: ${{ inputs.max_workers }}
           clear_cache: ${{ inputs.clear_cache }}
+          remote_cache: ${{ steps.machine.outputs.profile != 'nexus' }}
+          cache_env: ${{ steps.machine.outputs.profile == 'ephemeral' && secrets.BUILD_CACHE_S3 || '' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -279,7 +357,7 @@ jobs:
 
       - name: x86-64 emulator for hermesc
         id: x86
-        if: ${{ inputs.x86_emulator != 'qemu' }}
+        if: ${{ steps.machine.outputs.profile == 'nexus' && inputs.x86_emulator != 'qemu' }}
         uses: GabryXnLab/build-kit/x86-64@main
         with:
           emulator: ${{ inputs.x86_emulator }}
@@ -308,15 +386,18 @@ jobs:
           done
           echo "hermesc via $LAUNCHER: $N copie"
 
-      # cmake ARM64 nativo in /home/ubuntu/cmake-native evita QEMU su arm64 Linux.
-      - name: Configure ARM64-native toolchain
-        run: printf 'sdk.dir=/opt/android-sdk\ncmake.dir=/home/ubuntu/cmake-native\n' > android/local.properties
+      # cmake ARM64 nativo in /home/ubuntu/cmake-native evita QEMU su arm64 Linux (solo nexus-core).
+      - name: Configure toolchain
+        run: |
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android/local.properties
+          if [ -n "${CMAKE_DIR:-}" ]; then printf 'cmake.dir=%s\n' "$CMAKE_DIR" >> android/local.properties; fi
 
       # Patch idempotente del NDK: usa clang aarch64 nativo anziché qemu-emulated x86_64.
       # Riduce la build C++ da ~1h a ~10-15min sul runner ARM64. Composite action
       # (non uno script nel checkout del chiamante): è generica a ogni consumatore.
       - name: Patch NDK aarch64 host toolchain
-        uses: GabryXnLab/expo-ci/setup-ndk-aarch64-host@main
+        if: ${{ steps.machine.outputs.profile == 'nexus' }}
+        uses: GabryXnLab/expo-ci/setup-ndk-aarch64-host@auto-runner
 
       # Opzionale: alcuni progetti richiedono pre-generazione codegen per evitare
       # race condition tra :app:configureCMake e generateCodegenArtifacts.
@@ -367,6 +448,10 @@ jobs:
         id: signing
         if: ${{ inputs.signing_keystore != '' }}
         env:
+          RELEASE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_STORE_PW: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PW: ${{ secrets.RELEASE_KEY_PASSWORD }}
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PROPS: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
           KEYSTORE_NAME: ${{ inputs.signing_keystore }}
@@ -374,7 +459,11 @@ jobs:
           set -euo pipefail
           DIR="$RUNNER_TEMP/signing"
           rm -rf "$DIR" && mkdir -p "$DIR" && chmod 700 "$DIR"
-          if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PROPS:-}" ]; then
+          if [ -n "${RELEASE_B64:-}" ] && [ -n "${RELEASE_STORE_PW:-}" ] && [ -n "${RELEASE_ALIAS:-}" ] && [ -n "${RELEASE_KEY_PW:-}" ]; then
+            printf '%s' "$RELEASE_B64" | base64 -d > "$DIR/ks.jks"
+            printf 'storePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$RELEASE_STORE_PW" "$RELEASE_ALIAS" "$RELEASE_KEY_PW" > "$DIR/ks.properties"
+            echo "Keystore dai secret RELEASE_* del repository."
+          elif [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PROPS:-}" ]; then
             printf '%s' "$KEYSTORE_B64" | base64 -d > "$DIR/ks.jks"
             printf '%s\n' "$KEYSTORE_PROPS" > "$DIR/ks.properties"
             echo "Keystore '$KEYSTORE_NAME' dai secret del repository."
@@ -385,7 +474,7 @@ jobs:
             echo "Keystore '$KEYSTORE_NAME' dal runner (/home/ubuntu/secrets)."
           else
             echo "ERROR: signing_keystore='$KEYSTORE_NAME' ma il keystore non c'è: né i secret"
-            echo "ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PROPERTIES, né"
+            echo "RELEASE_KEYSTORE_*, né ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PROPERTIES, né"
             echo "/home/ubuntu/secrets/$KEYSTORE_NAME.jks(+.properties) sul runner."
             exit 1
           fi
@@ -481,6 +570,12 @@ jobs:
             android/app/build/outputs/apk/**/*.apk
             android/app/build/outputs/bundle/**/*.aab
           retention-days: 1
+
+      # Il keystore decodificato vive solo in questo job: su nexus-core e ohos il runner è
+      # persistente, quindi si cancella a fine job.
+      - name: Remove signing material
+        if: ${{ always() }}
+        run: rm -rf "$RUNNER_TEMP/signing"
 
       # Esito sempre, anche quando la build fallisce: con l'artefatto se c'è, altrimenti con
       # il pulsante per rilanciare il run (azione in GabryXnLab/build-kit, bot ci-bot). Best-effort.

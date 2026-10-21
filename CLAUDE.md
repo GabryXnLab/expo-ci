@@ -19,6 +19,13 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
 
 ### `expo-build.yml` — build Android (APK arm64-v8a / AAB)
 - `build_target`: `local` (self-hosted nexus-core ARM64, Gradle nativo) | `eas` (cloud).
+- `build_target: auto` (branch `auto-runner`): job `pick` (`build-kit/pick-runner`) sceglie nexus-core, ohos o Ubicloud
+  e la build locale gira lì. Ciò che dipende dalla macchina (SDK, NDK, JDK, cmake, Box64, patch NDK) lo decide lo
+  step «Machine environment» in base al profilo (`nexus|ohos|ephemeral`) e lo scrive in `GITHUB_ENV`, non
+  `build_target`. Cache remota (`remote_cache`) fuori da nexus. `eas` e gli update non cambiano. Sul branch i
+  riferimenti a build-kit/expo-ci sono `@auto-runner`: al merge tornano `@main`.
+- Firme: i secret `RELEASE_KEYSTORE_B64/_PASSWORD`, `RELEASE_KEY_ALIAS/_PASSWORD` hanno la precedenza (file
+  temporaneo del job, cancellato a fine job); poi `ANDROID_KEYSTORE_*`; il file di `/home/ubuntu/secrets` solo su nexus.
 - `build_profile`: `development` (`assembleDebug` + dev client, APK) | `preview` (`assembleRelease`,
   APK) | `production` (`bundleRelease`, **AAB** per gli store). Per `production` usare
   `build_target=eas`: la firma usa il keystore gestito da Expo (il `bundleRelease` locale è
