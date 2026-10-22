@@ -19,7 +19,7 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
 
 ### `expo-build.yml` — build Android (APK arm64-v8a / AAB)
 - `build_target`: `local` (self-hosted nexus-core ARM64, Gradle nativo) | `eas` (cloud).
-- `build_target: auto` (branch `auto-runner`): job `pick` (`build-kit/pick-runner`) sceglie nexus-core, ohos o Ubicloud
+- `build_target: auto`: job `pick` (`build-kit/pick-runner`) sceglie nexus-core, ohos o Ubicloud
   e la build locale gira lì. Ciò che dipende dalla macchina (SDK, NDK, JDK, cmake, Box64, patch NDK) lo decide lo
   step «Machine environment» in base al profilo (`nexus|ohos|ephemeral`) e lo scrive in `GITHUB_ENV`, non
   `build_target`. Cache remota (`remote_cache`) fuori da nexus. `eas` e gli update non cambiano. Sul branch i

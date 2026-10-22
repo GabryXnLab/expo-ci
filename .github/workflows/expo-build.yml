@@ -397,7 +397,7 @@ jobs:
       # (non uno script nel checkout del chiamante): è generica a ogni consumatore.
       - name: Patch NDK aarch64 host toolchain
         if: ${{ steps.machine.outputs.profile == 'nexus' }}
-        uses: GabryXnLab/expo-ci/setup-ndk-aarch64-host@auto-runner
+        uses: GabryXnLab/expo-ci/setup-ndk-aarch64-host@main
 
       # Opzionale: alcuni progetti richiedono pre-generazione codegen per evitare
       # race condition tra :app:configureCMake e generateCodegenArtifacts.
