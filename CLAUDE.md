@@ -24,6 +24,7 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   step «Machine environment» in base al profilo (`nexus|ohos|ephemeral`) e lo scrive in `GITHUB_ENV`, non
   `build_target`. Cache remota (`remote_cache`) fuori da nexus. `eas` e gli update non cambiano. Sul branch i
   riferimenti a build-kit/expo-ci sono `@main`: al merge tornano `@main`.
+- **Profilo `ohos`.** JDK e SDK Android da azioni (`setup-java`, `sdkmanager`) senza apt/sudo, con controllo che il JDK ci sia davvero; gli strumenti restano nella `_tool` persistente del runner; memoria di Gradle/Kotlin ridotta (`Xmx4g`, workers max 4) perché il PC è anche il desktop del proprietario. Il watcher di ohos ferma il runner sotto pressione di memoria.
 - Firme: i secret `RELEASE_KEYSTORE_B64/_PASSWORD`, `RELEASE_KEY_ALIAS/_PASSWORD` hanno la precedenza (file
   temporaneo del job, cancellato a fine job); poi `ANDROID_KEYSTORE_*`; il file di `/home/ubuntu/secrets` solo su nexus.
 - `build_profile`: `development` (`assembleDebug` + dev client, APK) | `preview` (`assembleRelease`,
