@@ -302,7 +302,7 @@ jobs:
           runner: ${{ steps.machine.outputs.profile == 'nexus' && 'self-hosted' || steps.machine.outputs.profile == 'ohos' && 'ohos' || 'ubicloud' }}
           max_workers: ${{ inputs.max_workers }}
           clear_cache: ${{ inputs.clear_cache }}
-          remote_cache: ${{ steps.machine.outputs.profile != 'nexus' }}
+          remote_cache: true
           cache_env: ${{ steps.machine.outputs.profile == 'ephemeral' && secrets.BUILD_CACHE_S3 || '' }}
 
       # Il limite di memoria di ohos (MemoryMax=10G per tutto il runner, con gioco o emulatore sulla
