@@ -297,7 +297,7 @@ jobs:
       # Worker, ccache condiviso e clear_cache di sola esecuzione: il pezzo comune a tutte
       # le build, in GabryXnLab/build-kit.
       - name: Tune build
-        uses: GabryXnLab/build-kit/setup@build-veloci-f7
+        uses: GabryXnLab/build-kit/setup@main
         with:
           runner: ${{ steps.machine.outputs.profile == 'nexus' && 'self-hosted' || steps.machine.outputs.profile == 'ohos' && 'ohos' || 'ubicloud' }}
           max_workers: ${{ inputs.max_workers }}
