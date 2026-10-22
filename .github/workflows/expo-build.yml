@@ -178,6 +178,13 @@ jobs:
     needs: pick
     if: ${{ !cancelled() && needs.pick.result != 'failure' && (inputs.build_target == 'local' || inputs.build_target == 'auto') }}
     runs-on: ${{ inputs.build_target == 'auto' && fromJSON(needs.pick.outputs.runs_on) || fromJSON('["self-hosted","nexus-core"]') }}
+    env:
+      # Dipendenze come archivi sul bucket S3 (build-kit/s3-cache), solo con ohos e Ubicloud;
+      # nexus resta sul disco. android/ è generato dal prebuild, quindi la chiave è il lockfile.
+      S3C_ITEMS: |
+        pnpm-store|~/.local/share/pnpm/store|pnpm-lock.yaml|pnpm-${{ inputs.pnpm_version || 'pm' }}
+        gradle-modules|~/.gradle/caches/modules-2|pnpm-lock.yaml|gradle-1
+        gradle-wrapper|~/.gradle/wrapper/dists|pnpm-lock.yaml|gradle-1
     steps:
       # ohos non ha JDK né SDK Android e l utente del runner è senza sudo: si prendono con le
       # azioni standard (JDK e SDK restano in $HOME e nel tool cache fra i run; i binari x86-64
@@ -213,6 +220,7 @@ jobs:
         id: machine
         env:
           PROFILE: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile || 'nexus' }}
+          AUTO: ${{ inputs.build_target }}
         run: |
           set -euo pipefail
           NDK_VER=27.3.13750724
@@ -254,6 +262,7 @@ jobs:
             echo "JAVA_HOME=$JDK"
           } >> "$GITHUB_ENV"
           echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "s3c=$([ "$AUTO" = "auto" ] && [ "$PROFILE" != "nexus" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "Profilo $PROFILE: SDK $SDK, JDK $JDK, $(uname -m)"
 
       # «In corso» con ⏹ Annulla (ci-bot); lo step finale riscrive lo stesso messaggio.
@@ -333,6 +342,16 @@ jobs:
           echo "Cache del progetto svuotate (clear_cache=true)"
           rm -rf node_modules android/.gradle android/build android/app/build android/app/.cxx .gradle .expo
           rm -rf "${TMPDIR:-/tmp}/metro-"* "${TMPDIR:-/tmp}/haste-map-"* || true
+
+      - name: Restore dependency archives (S3)
+        if: ${{ steps.machine.outputs.s3c == 'true' }}
+        uses: GabryXnLab/build-kit/s3-cache@s3-cache
+        with:
+          mode: restore
+          stack: expo
+          items: ${{ env.S3C_ITEMS }}
+          cache_env: ${{ steps.machine.outputs.profile == 'ephemeral' && secrets.BUILD_CACHE_S3 || '' }}
+          clear_cache: ${{ inputs.clear_cache }}
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -617,6 +636,15 @@ jobs:
       # La quota di storage degli artifact è dell'org (piano free) e si ricalcola ogni 6-12 h:
       # quando è piena una build riuscita non deve risultare fallita. La consegna vera è il
       # file su Telegram; senza artifact manca solo il pulsante «Rimanda artefatti».
+      - name: Save dependency archives (S3)
+        if: ${{ success() && steps.machine.outputs.s3c == 'true' }}
+        uses: GabryXnLab/build-kit/s3-cache@s3-cache
+        with:
+          mode: save
+          stack: expo
+          items: ${{ env.S3C_ITEMS }}
+          cache_env: ${{ steps.machine.outputs.profile == 'ephemeral' && secrets.BUILD_CACHE_S3 || '' }}
+
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
