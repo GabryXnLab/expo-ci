@@ -192,6 +192,10 @@ jobs:
       - name: Set up Android SDK (ohos)
         if: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile == 'ohos' }}
         uses: android-actions/setup-android@v3
+        # Il predefinito chiede anche «tools», che con cmdline-tools 16 non esiste più e fa uscire sdkmanager con 1.
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
 
       # Tutto ciò che dipende dalla macchina (SDK, NDK, JDK, cmake) sta qui e finisce in
       # GITHUB_ENV: il profilo decide, non il valore di build_target.
