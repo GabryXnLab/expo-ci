@@ -179,6 +179,20 @@ jobs:
     if: ${{ !cancelled() && needs.pick.result != 'failure' && (inputs.build_target == 'local' || inputs.build_target == 'auto') }}
     runs-on: ${{ inputs.build_target == 'auto' && fromJSON(needs.pick.outputs.runs_on) || fromJSON('["self-hosted","nexus-core"]') }}
     steps:
+      # ohos non ha JDK né SDK Android e l utente del runner è senza sudo: si prendono con le
+      # azioni standard (JDK e SDK restano in $HOME e nel tool cache fra i run; i binari x86-64
+      # generici girano con nix-ld). Prima di «Machine environment», che li cerca.
+      - name: Set up Java (ohos)
+        if: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile == 'ohos' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK (ohos)
+        if: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile == 'ohos' }}
+        uses: android-actions/setup-android@v3
+
       # Tutto ciò che dipende dalla macchina (SDK, NDK, JDK, cmake) sta qui e finisce in
       # GITHUB_ENV: il profilo decide, non il valore di build_target.
       - name: Machine environment
@@ -205,8 +219,14 @@ jobs:
             *) echo "::error::profilo sconosciuto: $PROFILE"; exit 1 ;;
           esac
           if [ ! -d "$SDK/ndk/$NDK_VER" ]; then
-            if [ "$PROFILE" = ephemeral ] && [ -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
-              yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "ndk;$NDK_VER" >/dev/null
+            # La cartella di cmdline-tools si chiama `latest` sui runner GitHub e con la versione
+            # (es. 16.0) dove l ha messa setup-android: si cerca, non si indovina.
+            SDKMANAGER=""
+            if [ "$PROFILE" != nexus ]; then
+              SDKMANAGER=$(compgen -G "$SDK/cmdline-tools/*/bin/sdkmanager" | sort -V | tail -1 || true)
+            fi
+            if [ -n "$SDKMANAGER" ] && [ -x "$SDKMANAGER" ]; then
+              yes | "$SDKMANAGER" --sdk_root="$SDK" "ndk;$NDK_VER" >/dev/null
             else
               echo "::error::NDK $NDK_VER assente in $SDK (profilo $PROFILE)"; exit 1
             fi
@@ -254,6 +274,26 @@ jobs:
           clear_cache: ${{ inputs.clear_cache }}
           remote_cache: ${{ steps.machine.outputs.profile != 'nexus' }}
           cache_env: ${{ steps.machine.outputs.profile == 'ephemeral' && secrets.BUILD_CACHE_S3 || '' }}
+
+      # Il limite di memoria di ohos (MemoryMax=10G per tutto il runner, con gioco o emulatore sulla
+      # stessa macchina) non regge i valori dei progetti, tarati su nexus-core. GRADLE_OPTS -D e
+      # ORG_GRADLE_PROJECT_ prevalgono su gradle.properties del progetto (che il prebuild
+      # rigenera) e cambiano solo la memoria dei processi. Il tetto ai worker vale solo con
+      # max_workers=auto.
+      - name: Fit Gradle to ohos
+        if: ${{ steps.machine.outputs.profile == 'ohos' }}
+        env:
+          MAX_WORKERS: ${{ inputs.max_workers }}
+        run: |
+          set -euo pipefail
+          OPTS='-Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -XX:ReservedCodeCacheSize=256m"'
+          if [ "$MAX_WORKERS" = "auto" ]; then
+            N=$(grep -oE 'org.gradle.workers.max=[0-9]+' <<< "${GRADLE_OPTS:-}" | tail -1 | cut -d= -f2)
+            if [ "${N:-4}" -gt 4 ]; then OPTS="$OPTS -Dorg.gradle.workers.max=4"; fi
+          fi
+          echo "GRADLE_OPTS=${GRADLE_OPTS:+$GRADLE_OPTS }$OPTS" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_kotlin.daemon.jvmargs=-Xmx1536m" >> "$GITHUB_ENV"
+          echo "GRADLE_OPTS per ohos: $OPTS"
 
       - uses: actions/setup-node@v4
         with:
