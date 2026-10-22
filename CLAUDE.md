@@ -23,7 +23,7 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   e la build locale gira lì. Ciò che dipende dalla macchina (SDK, NDK, JDK, cmake, Box64, patch NDK) lo decide lo
   step «Machine environment» in base al profilo (`nexus|ohos|ephemeral`) e lo scrive in `GITHUB_ENV`, non
   `build_target`. Cache remota (`remote_cache`) fuori da nexus. `eas` e gli update non cambiano. Sul branch i
-  riferimenti a build-kit/expo-ci sono `@auto-runner`: al merge tornano `@main`.
+  riferimenti a build-kit/expo-ci sono `@main`: al merge tornano `@main`.
 - Firme: i secret `RELEASE_KEYSTORE_B64/_PASSWORD`, `RELEASE_KEY_ALIAS/_PASSWORD` hanno la precedenza (file
   temporaneo del job, cancellato a fine job); poi `ANDROID_KEYSTORE_*`; il file di `/home/ubuntu/secrets` solo su nexus.
 - `build_profile`: `development` (`assembleDebug` + dev client, APK) | `preview` (`assembleRelease`,
