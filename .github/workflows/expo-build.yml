@@ -345,7 +345,7 @@ jobs:
 
       - name: Restore dependency archives (S3)
         if: ${{ steps.machine.outputs.s3c == 'true' }}
-        uses: GabryXnLab/build-kit/s3-cache@s3-cache
+        uses: GabryXnLab/build-kit/s3-cache@main
         with:
           mode: restore
           stack: expo
@@ -638,7 +638,7 @@ jobs:
       # file su Telegram; senza artifact manca solo il pulsante «Rimanda artefatti».
       - name: Save dependency archives (S3)
         if: ${{ success() && steps.machine.outputs.s3c == 'true' }}
-        uses: GabryXnLab/build-kit/s3-cache@s3-cache
+        uses: GabryXnLab/build-kit/s3-cache@main
         with:
           mode: save
           stack: expo
