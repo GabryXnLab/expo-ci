@@ -189,6 +189,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Su ohos setup-java è uscito verde senza aver installato nulla, con il download fermo a metà
+      # (run 39761287988): così l errore compare qui e non come «JAVA_HOME is not set» più avanti.
+      - name: Check JDK (ohos)
+        if: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile == 'ohos' }}
+        run: |
+          if [ ! -x "${JAVA_HOME:-/nonexistent}/bin/java" ]; then
+            echo "::error::setup-java non ha installato il JDK (download interrotto?): rilanciare il job"
+            exit 1
+          fi
+
       - name: Set up Android SDK (ohos)
         if: ${{ inputs.build_target == 'auto' && needs.pick.outputs.profile == 'ohos' }}
         uses: android-actions/setup-android@v3
