@@ -240,7 +240,8 @@ jobs:
               SDKMANAGER=$(compgen -G "$SDK/cmdline-tools/*/bin/sdkmanager" | sort -V | tail -1 || true)
             fi
             if [ -n "$SDKMANAGER" ] && [ -x "$SDKMANAGER" ]; then
-              yes | "$SDKMANAGER" --sdk_root="$SDK" "ndk;$NDK_VER" >/dev/null
+              # Con pipefail il «yes» rimasto senza lettore farebbe fallire lo step anche a NDK installato.
+              { yes || true; } | "$SDKMANAGER" --sdk_root="$SDK" "ndk;$NDK_VER" >/dev/null
             else
               echo "::error::NDK $NDK_VER assente in $SDK (profilo $PROFILE)"; exit 1
             fi
