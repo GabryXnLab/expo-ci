@@ -297,12 +297,13 @@ jobs:
       # Worker, ccache condiviso e clear_cache di sola esecuzione: il pezzo comune a tutte
       # le build, in GabryXnLab/build-kit.
       - name: Tune build
-        uses: GabryXnLab/build-kit/setup@main
+        uses: GabryXnLab/build-kit/setup@build-veloci-f7
         with:
           runner: ${{ steps.machine.outputs.profile == 'nexus' && 'self-hosted' || steps.machine.outputs.profile == 'ohos' && 'ohos' || 'ubicloud' }}
           max_workers: ${{ inputs.max_workers }}
           clear_cache: ${{ inputs.clear_cache }}
           remote_cache: true
+          cmake_cache: true
           cache_env: ${{ steps.machine.outputs.profile == 'ephemeral' && secrets.BUILD_CACHE_S3 || '' }}
 
       # Il limite di memoria di ohos (MemoryMax=10G per tutto il runner, con gioco o emulatore sulla
@@ -479,16 +480,6 @@ jobs:
         if: ${{ steps.machine.outputs.profile == 'nexus' }}
         uses: GabryXnLab/expo-ci/setup-ndk-aarch64-host@main
 
-      # Opzionale: alcuni progetti richiedono pre-generazione codegen per evitare
-      # race condition tra :app:configureCMake e generateCodegenArtifacts.
-      - name: Pre-generate codegen artifacts
-        if: ${{ inputs.codegen_tasks != '' }}
-        env:
-          CODEGEN_TASKS: ${{ inputs.codegen_tasks }}
-        run: |
-          cd android && chmod +x gradlew
-          ./gradlew --no-daemon $CODEGEN_TASKS
-
       # Incorpora il channel EAS Update nel binario. Le build locali (prebuild +
       # gradle, senza `eas build`) NON scrivono `expo-channel-name` nel manifest:
       # il config-plugin di expo-updates lo prende solo da updates.requestHeaders,
@@ -578,6 +569,7 @@ jobs:
           BUILD_PROFILE: ${{ inputs.build_profile }}
           CLEAR_CACHE: ${{ inputs.clear_cache }}
           SIGNING_DIR: ${{ steps.signing.outputs.dir }}
+          GX_CODEGEN_TASKS: ${{ inputs.codegen_tasks }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           cd android && chmod +x gradlew
@@ -614,7 +606,28 @@ jobs:
             SIGN_ARGS="$SIGN_ARGS -Pandroid.injected.signing.key.alias=$KEY_ALIAS"
             SIGN_ARGS="$SIGN_ARGS -Pandroid.injected.signing.key.password=$KEY_PW"
           fi
-          ./gradlew "$GRADLE_TASK" \
+          # codegen_tasks (race fra :app:configureCMake e generateCodegenArtifacts in release): prima una
+          # seconda invocazione di Gradle (JVM e configurazione due volte, 70-170 s), ora dipendenze di
+          # :app:configureCMake*. Le librerie senza abiFilters (expo-updates) si limitano alle ABI
+          # chieste: compilavano anche armeabi-v7a, x86 e x86_64, che l'APK poi scarta.
+          INIT="$RUNNER_TEMP/gx-expo.gradle"
+          cat > "$INIT" <<'GRADLE'
+          def codegen = (System.getenv('GX_CODEGEN_TASKS') ?: '').split(/\s+/).findAll { it }
+          def archs = (gradle.startParameter.projectProperties['reactNativeArchitectures'] ?: '').split(',').findAll { it }
+          gradle.allprojects { p ->
+            if (p.path == ':app' && codegen) {
+              p.tasks.matching { it.name.startsWith('configureCMake') }.configureEach { it.dependsOn(codegen) }
+            }
+            if (archs) {
+              p.plugins.withId('com.android.library') {
+                p.extensions.getByName('androidComponents').finalizeDsl { ext ->
+                  if (ext.defaultConfig.ndk.abiFilters.isEmpty()) ext.defaultConfig.ndk.abiFilters.addAll(archs)
+                }
+              }
+            }
+          }
+          GRADLE
+          ./gradlew "$GRADLE_TASK" --init-script "$INIT" \
             --no-daemon $BUILD_CACHE_FLAG \
             -PreactNativeArchitectures=arm64-v8a $SIGN_ARGS
 
