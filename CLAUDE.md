@@ -33,8 +33,9 @@ input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushar
   firmato col keystore del prebuild → ok per ispezione, NON per upload sullo store).
 - `expo_updates_channel`: valore passato a `expo prebuild` → **determina il channel OTA che
   l'APK ascolterà**. Deve combaciare col branch su cui si pubblicheranno gli update.
-- `codegen_tasks`: pre-genera artifact codegen Fabric prima di `assembleRelease` (race tra
-  `:app:configureCMake` e `generateCodegenArtifacts` in release; in debug non serve).
+- `codegen_tasks`: task codegen Fabric messi in dipendenza di `:app:configureCMake*` da un init
+  script, nella stessa invocazione di Gradle (race tra `:app:configureCMake` e
+  `generateCodegenArtifacts` in release; una seconda invocazione costava ~90 s di JVM e configurazione).
 - `signing_keystore`: firma la build **locale** con un keystore vero invece del `debug.keystore`
   del prebuild. Il file sta sul runner (`/home/ubuntu/secrets/<nome>.jks` + `.properties`) o nei
   secret `ANDROID_KEYSTORE_BASE64`/`ANDROID_KEYSTORE_PROPERTIES`; la firma passa dalle proprietà
