@@ -673,6 +673,7 @@ jobs:
         if: ${{ always() }}
         uses: GabryXnLab/build-kit/summary@build-veloci-f1
         with:
+          token: ${{ secrets.RUNNER_PICK_TOKEN || github.token }}
           stack: expo
           profile: ${{ steps.machine.outputs.profile }}
 
