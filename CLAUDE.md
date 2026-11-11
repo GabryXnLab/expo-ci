@@ -2,18 +2,18 @@
 
 Reusable GitHub Actions workflows per build APK e update OTA di app Expo (React Native).
 Centralizza la CI/CD condivisa tra più progetti (**WarpMobile**, **Ascend**, …).
-Vedi anche `README.md` per l'overview d'uso.
+`README.md` ha l'uso lato progetto; questo file i vincoli di chi ci mette mano.
 
 Controparte **desktop**: `GabryXnLab/desktop-ci` (build Tauri multi-OS/arch), stesso pattern.
 Nei consumatori (es. WarpMobile) un unico wrapper `Build` richiama entrambi i reusable.
 
-## ⚠️ Impatto delle modifiche: @main è live per tutti
+## `@main` è live per tutti
 
-I progetti richiamano questi workflow come reusable via `uses: GabryXnLab/expo-ci/...@main`.
-**Ogni push su `main` ha effetto immediato su TUTTI i progetti** al loro prossimo run.
-Non esiste pinning per SHA lato consumatori: una modifica rotta qui rompe tutti i progetti.
-→ Mantenere gli input **retrocompatibili** (nuovi input con `default`, mai rimuovere/rinominare
-input esistenti senza aggiornare ogni wrapper). Validare lo YAML prima di pushare.
+I progetti richiamano questi workflow via `uses: GabryXnLab/expo-ci/...@main`, senza pin per SHA:
+ogni push su `main` ha effetto su tutti al loro prossimo run, e una modifica rotta li rompe tutti.
+Gli input restano retrocompatibili: se ne aggiungono con `default`; uno rinominato o tolto fa fallire
+ogni wrapper che lo passa, quindi si cambia solo aggiornando prima tutti i wrapper. Lo YAML si valida
+prima di pushare.
 
 ## Workflow
 
@@ -93,7 +93,7 @@ così è coerente tra tutti i progetti.
   - Il nome del workflow di build da interrogare è l'input `build_workflow_name` (default
     `Manual Build`).
 
-### ⚠️ Insidie scoperte su `auto`
+### Insidie scoperte su `auto`
 
 1. **`gh run list --workflow <name> --status success` è inaffidabile**: in alcune versioni di
    `gh` ritornava vuoto. Soluzione adottata: scaricare la lista piena
